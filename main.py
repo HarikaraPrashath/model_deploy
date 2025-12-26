@@ -11,8 +11,9 @@ label_enc = joblib.load("career_label_encoder_updated.joblib") # this is value t
 app = FastAPI()
 
 origins = os.getenv(
-    "ALLOWED_ORIGINS"
-)
+    "ALLOWED_ORIGINS",
+    "http://localhost:3000,http://127.0.0.1:3000"
+).split(",")
 
 app.add_middleware(
     CORSMiddleware,
