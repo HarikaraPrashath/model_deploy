@@ -5,16 +5,24 @@ import pandas as pd
 import joblib
 import os
 
-# Load saved model and label encoder
+# -------------------------------------------------
+# LOAD MODEL FILES FROM ROOT DIRECTORY
+# -------------------------------------------------
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-xgb_clf = joblib.load(os.path.join(
-    BASE_DIR, "models", "career_prediction_xgboost_updated.joblib"
-))
-label_enc = joblib.load(os.path.join(
-    BASE_DIR, "models", "career_label_encoder_updated.joblib"
-))
+MODEL_PATH = os.path.join(
+    BASE_DIR, "career_prediction_xgboost_updated.joblib"
+)
+ENCODER_PATH = os.path.join(
+    BASE_DIR, "career_label_encoder_updated.joblib"
+)
 
+xgb_clf = joblib.load(MODEL_PATH)
+label_enc = joblib.load(ENCODER_PATH)
+
+# -------------------------------------------------
+# FASTAPI APP
+# -------------------------------------------------
 app = FastAPI()
 
 origins = [
@@ -33,16 +41,19 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ✅ HOME / HEALTH CHECK FUNCTION
+# -------------------------------------------------
+# HEALTH CHECK (VERY IMPORTANT)
+# -------------------------------------------------
 @app.get("/")
 def home():
     return {
         "status": "success",
-        "message": "🚀 Career Prediction API deployed successfully!",
-        "cors_allowed_origins": origins
+        "message": "🚀 Career Prediction API deployed successfully"
     }
 
-# ------------------ MODEL INPUT ------------------
+# -------------------------------------------------
+# INPUT SCHEMA
+# -------------------------------------------------
 class StudentData(BaseModel):
     Soft_Skills: str = ""
     Key_Skils: str = ""
@@ -65,7 +76,9 @@ class StudentData(BaseModel):
     Riasec_Enterprising: float
     Riasec_Conventional: float
 
-# ------------------ PREDICT ------------------
+# -------------------------------------------------
+# PREDICTION ENDPOINT
+# -------------------------------------------------
 @app.post("/predict")
 def predict(student: StudentData):
     df = pd.DataFrame([student.model_dump()])
