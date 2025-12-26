@@ -23,7 +23,7 @@ label_enc = joblib.load(ENCODER_PATH)
 # -------------------------------------------------
 # FASTAPI APP
 # -------------------------------------------------
-app = FastAPI()
+app = FastAPI(title="Career guide")
 
 app.add_middleware(
     CORSMiddleware,
@@ -36,11 +36,10 @@ app.add_middleware(
 # -------------------------------------------------
 # HEALTH CHECK (VERY IMPORTANT)
 # -------------------------------------------------
-@app.get("/")
-def home():
+@app.get("/","include_in_schema=False)
+def index():
     return {
-        "status": "success",
-        "message": "🚀 Career Prediction API deployed successfully"
+       RedirectResponse("/docs",status_code=308)
     }
 
 # -------------------------------------------------
