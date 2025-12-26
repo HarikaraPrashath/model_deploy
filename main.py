@@ -3,17 +3,16 @@ from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 import pandas as pd
 import joblib
-
+import os
 # Load saved model and label encoder
 xgb_clf = joblib.load("career_prediction_xgboost_updated.joblib")  # this was a model
 label_enc = joblib.load("career_label_encoder_updated.joblib") # this is value to datatype conventer
 
 app = FastAPI()
 
-origins = [
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-]
+origins = os.getenv(
+    "ALLOWED_ORIGINS"
+)
 
 app.add_middleware(
     CORSMiddleware,
