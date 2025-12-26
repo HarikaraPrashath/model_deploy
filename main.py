@@ -5,10 +5,15 @@ import pandas as pd
 import joblib
 import os
 
+# Load saved model and label encoder
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-xgb_clf = joblib.load(os.path.join(BASE_DIR, "career_prediction_xgboost_updated.joblib"))
-label_enc = joblib.load(os.path.join(BASE_DIR, "career_label_encoder_updated.joblib"))
+xgb_clf = joblib.load(os.path.join(
+    BASE_DIR, "models", "career_prediction_xgboost_updated.joblib"
+))
+label_enc = joblib.load(os.path.join(
+    BASE_DIR, "models", "career_label_encoder_updated.joblib"
+))
 
 app = FastAPI()
 
@@ -28,22 +33,31 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ✅ HOME / HEALTH CHECK FUNCTION
 @app.get("/")
-def root():
-    return {"ok": True, "origins": origins}
+def home():
+    return {
+        "status": "success",
+        "message": "🚀 Career Prediction API deployed successfully!",
+        "cors_allowed_origins": origins
+    }
 
+# ------------------ MODEL INPUT ------------------
 class StudentData(BaseModel):
     Soft_Skills: str = ""
     Key_Skils: str = ""
     Current_semester: str
     Learning_Style: str = "Unknown"
+
     GPA: float
     English_score: float
+
     Ocean_Openness: float
     Ocean_Conscientiousness: float
     Ocean_Extraversion: float
     Ocean_Agreeableness: float
     Ocean_Neuroticism: float
+
     Riasec_Realistic: float
     Riasec_Investigative: float
     Riasec_Artistic: float
@@ -51,6 +65,7 @@ class StudentData(BaseModel):
     Riasec_Enterprising: float
     Riasec_Conventional: float
 
+# ------------------ PREDICT ------------------
 @app.post("/predict")
 def predict(student: StudentData):
     df = pd.DataFrame([student.model_dump()])
