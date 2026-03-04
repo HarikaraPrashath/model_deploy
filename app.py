@@ -25,6 +25,7 @@ app.add_middleware(
 def root():
     return {"status": "Career Prediction API running"}
 
+# this is for the career Guide endpoint
 @app.post("/predict-career")
 def predict_career(student: StudentInputGuide):
     return predict_career(student)
