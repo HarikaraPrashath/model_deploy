@@ -48,6 +48,7 @@ class StudentInput(BaseModel):
 def root():
     return {"status": "Career Prediction API running"}
 
+#this is for the career Guide endpoint
 @app.post("/predict-career")
 def predict(inp: StudentInput):
     return predict_career(inp)
