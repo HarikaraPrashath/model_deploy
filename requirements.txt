@@ -6,3 +6,7 @@ scikit-learn
 joblib
 xgboost
 groq
+
+imbalanced-learn
+seaborn
+matplotlib
