@@ -25,7 +25,7 @@ app.add_middleware(
 def root():
     return {"status": "Career Prediction API running"}
 
-@app.post("/predict")
+@app.post("/predict-career")
 def predict(inp: StudentInput):
     return predict_career(inp)
 
