@@ -1,0 +1,256 @@
+# Core Programming (Extended)
+Assembly (Basics)
+WebAssembly (WASM)
+Groovy
+Objective-C
+Julia
+MATLAB
+PowerShell
+Zig
+Nim
+Bash (Advanced)
+
+# Web Technologies (Advanced)
+WebSockets
+WebRTC
+Progressive Web Apps (PWA)
+Server-Side Rendering (SSR)
+Static Site Generation (SSG)
+Web Performance Optimization
+SEO for Web Apps
+Vite
+Turbopack
+Bun
+Deno
+
+# Frontend Ecosystem
+Redux
+Redux Toolkit
+Zustand
+Recoil
+TanStack Query
+SWR
+Storybook
+Framer Motion
+Three.js
+WebGL
+Chart.js
+D3.js
+Internationalization (i18n)
+
+# Backend & API Engineering
+OpenAPI / Swagger
+OAuth 2.0
+OpenID Connect (OIDC)
+API Versioning
+Rate Limiting
+Backend Caching
+Webhooks
+Background Jobs
+GraphQL Subscriptions
+BFF (Backend for Frontend)
+
+# Databases (Advanced)
+Database Sharding
+Replication
+Index Optimization
+Query Optimization
+ACID Transactions
+CAP Theorem
+TimescaleDB
+CockroachDB
+ClickHouse
+Supabase
+PlanetScale
+Vector Databases
+Pinecone
+Weaviate
+Milvus
+
+# Data Engineering & Big Data
+Data Lakes
+Delta Lake
+Lakehouse Architecture
+Apache Flink
+Apache Beam
+dbt
+Data Governance
+Data Quality Management
+Metadata Management
+Real-time Analytics
+
+# AI / ML (Advanced)
+Large Language Models (LLMs)
+Retrieval Augmented Generation (RAG)
+LangChain
+LlamaIndex
+Vector Embeddings
+Model Fine-Tuning
+Explainable AI (XAI)
+Responsible AI
+AI Ethics
+Speech Recognition
+Text-to-Speech (TTS)
+Recommendation Systems
+
+# MLOps (Extended)
+Model Versioning
+Feature Stores
+CI/CD for ML
+A/B Testing for Models
+Data Drift Detection
+Model Governance
+Online Inference
+Offline Inference
+Edge AI Deployment
+
+# Cloud Platforms (Advanced)
+Cloud Architecture Design
+Multi-Cloud Strategy
+Hybrid Cloud
+FinOps (Cost Optimization)
+IAM
+VPC / VNET Design
+CDN
+Cloud Observability
+Secrets Management
+
+# DevOps & SRE (Advanced)
+Platform Engineering
+GitOps
+ArgoCD
+Flux
+Chaos Engineering
+Blue-Green Deployment
+Canary Deployment
+Prometheus
+Grafana
+OpenTelemetry
+SLO
+SLA
+SLI
+Incident Management
+
+# Networking (Advanced)
+Network Virtualization
+Software Defined Networking (SDN)
+VPN
+Zero Trust Architecture
+BGP (Basics)
+Network Monitoring
+QoS
+Reverse Proxies
+
+# Cybersecurity (Advanced)
+Threat Modeling
+Secure SDLC
+DevSecOps
+Cloud Security
+CSPM
+SAST
+DAST
+Secrets Scanning
+Digital Forensics
+Compliance (ISO 27001, SOC 2, GDPR)
+
+# Testing & Quality Engineering
+Test-Driven Development (TDD)
+Behavior-Driven Development (BDD)
+Contract Testing
+Mutation Testing
+Security Testing
+Chaos Testing
+API Testing
+Mobile App Testing
+Test Automation Frameworks
+
+# Software Architecture (Advanced)
+Clean Architecture
+Hexagonal Architecture
+Domain-Driven Design (DDD)
+CQRS
+Event Sourcing
+Distributed Systems
+Fault Tolerance
+High Availability
+Scalability Patterns
+Observability
+
+# APIs, Messaging & Streaming
+Event Streaming
+RabbitMQ
+Apache Pulsar
+AWS SQS
+AWS SNS
+Async APIs
+Message Brokers
+API Security
+
+# UI/UX & Product Design
+Design Systems
+UX Writing
+Usability Testing
+Human Computer Interaction (HCI)
+Motion Design
+Micro-Interactions
+Dark Mode Design
+Responsive Design Principles
+
+# Game, Graphics & Simulation
+Game Physics
+Shader Programming
+Ray Tracing
+OpenGL
+Vulkan
+Procedural Generation
+XR Development
+Simulation Systems
+
+# Embedded, IoT & Edge
+RTOS
+Embedded Linux
+MQTT
+CoAP
+OTA Updates
+Sensor Integration
+Edge AI
+Industrial IoT (IIoT)
+
+# Enterprise & Business Tech
+ERP Integration
+CRM Customization
+Business Process Automation
+Robotic Process Automation
+ITIL
+BPMN
+Enterprise Architecture
+
+# Low-Code / Automation
+Zapier
+Make (Integromat)
+Retool
+Bubble
+Workflow Automation
+Citizen Development
+
+# Project, Product & Leadership
+Product Management
+Technical Leadership
+Stakeholder Management
+Software Estimation
+Risk Management
+Roadmap Planning
+OKRs
+Mentoring
+Code Reviews
+
+# Emerging & Future Technologies
+Generative AI Applications
+Autonomous Agents
+AI Copilots
+Digital Twins
+Green IT
+Sustainable Computing
+Privacy Preserving AI
+Federated Learning
+Neuromorphic Computing
