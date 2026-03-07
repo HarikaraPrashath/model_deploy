@@ -3,8 +3,9 @@ from __future__ import annotations
 import os
 import sys
 from typing import Any
-
-
+from contextlib import asynccontextmanager
+from routes.usersRoute import router
+from database.database import Base, engine
 from typing import Optional
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
@@ -16,7 +17,7 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from service.Career_preddiction import predict_career_service
 
 #files are import from service folder
-from service.career_guide_service import predict_career
+from service.career_guide_service import run_prediction
 
 
 from service.career_market import cv_service
@@ -56,25 +57,42 @@ from service.career_market.utils.config import (
 )
 
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        print("✅ Database tables created successfully")
+    except Exception as e:
+        print(f"⚠️  Failed to create database tables: {str(e)}")
+        print("ℹ️  App will continue running (using local SQLite)")
+    
+    yield
+    
+    # Shutdown
+    await engine.dispose()
+
+
+
 #this is Prevent the CORS issues
 app = FastAPI(title="Career Prediction")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["http://localhost:3000"], 
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
-
 #this is the root path
 @app.get("/")
 def root():
     return {"status": "Career Prediction API running"}
 
 @app.post("/predict-career")
-def predict_career(student: StudentInputGuide):
-    return predict_career(student)
+def predict_career_route(inp: StudentInputGuide):
+    return run_prediction(inp)
 
 @app.post("/predict")
 def predict_career(student: StudentInput):
@@ -159,3 +177,7 @@ def get_ranked_summary_endpoint() -> JSONResponse:
 @app.post("/analyse")
 async def analyse_endpoint(request: Request, payload: dict[str, Any] | None = None) -> JSONResponse:
     return await analyse_service(request, payload)
+
+
+# Authentication
+app.include_router(router, prefix="/api/users")
