@@ -20,5 +20,6 @@ class StudentInputGuide(BaseModel):
     Riasec_Enterprising: float
     Riasec_Conventional: float
 
+    # ✅ Make optional
     Is_Sliit_Student: Optional[bool] = False
     Specialization: Optional[str] = ""

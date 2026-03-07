@@ -94,7 +94,7 @@ def build_dynamic_suggestions(inp_dict: dict, top1: str, top3: list[str]):
 # =========================
 # Prediction Logic
 # =========================
-def predict_career(inp):
+def run_prediction(inp):
     inp_dict = inp.dict()
 
     df = pd.DataFrame([inp_dict]).drop(
