@@ -16,8 +16,9 @@ else:
     print("✅ Using PostgreSQL database")
 
 # Convert PostgreSQL URL to async format
-if DATABASE_URL.startswith("postgresql://"):
-    DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://")
+if DATABASE_URL.startswith("postgresql+psycopg2://"):
+    DATABASE_URL = DATABASE_URL.replace("postgresql+psycopg2://", "postgresql+asyncpg://", 1)
+    # Remove SSL and channel binding parameters from URL (handled via connect_args)
     DATABASE_URL = DATABASE_URL.replace("&channel_binding=require", "")
     DATABASE_URL = DATABASE_URL.replace("?sslmode=require", "")
 
