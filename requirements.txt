@@ -38,7 +38,7 @@ pdfminer.six
 pillow
 paddleocr
 paddlepaddle
-opencv-python-headless
+opencv-python
 rapidfuzz
 
 # Web / Scraping / Automation
