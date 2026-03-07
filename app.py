@@ -2,23 +2,26 @@ from __future__ import annotations
 
 import os
 import sys
-from typing import Any
+from typing import Any, List, Dict
 from contextlib import asynccontextmanager
+import json
+import asyncio
+import logging
+
 from routes.usersRoute import router
 from database.database import Base, engine
 from typing import Optional
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi import FastAPI, File, HTTPException, UploadFile, Request
+from fastapi import FastAPI, File, HTTPException, UploadFile, Request, WebSocket, WebSocketDisconnect
+
 from model_schema.schema import StudentInput
 from model_schema.student_model import StudentInputGuide
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
-
 from service.Career_preddiction import predict_career_service
 
-#files are import from service folder
+# files are import from service folder
 from service.career_guide_service import run_prediction
-
 
 from service.career_market import cv_service
 
@@ -32,18 +35,22 @@ from service.career_market.profile_service import (
     get_profile_service,
     put_profile_service,
 )
+
 from service.career_market.jobs_service import (
     get_jobs_service,
     get_job_file_service,
     refresh_jobs_service,
 )
+
 from service.career_market.trends_service import (
     get_trend_history_service,
     get_trends_service,
     seed_trends_service,
 )
+
 from service.career_market.analysis_service import analyse_service
 from service.career_market.root_health_service import health_service
+
 from service.career_market.ranked_service import (
     get_ranked_service,
     get_ranked_summary_service,
@@ -56,10 +63,26 @@ from service.career_market.utils.config import (
     ensure_storage_dirs,
 )
 
+# --------------------- YOUR SYSTEM IMPORTS ---------------------
+
+from service.personality_career.api_models import (
+    AnalyzeRequest,
+    AnalyzeResponse,
+    CareerRecommendation,
+    PersonalityResult,
+    WSMessage
+)
+
+from service.personality_career.constants import INTERVIEW_QUESTIONS, CAREER_DETAILS
+from service.personality_career.career_guide_service import CareerService
+
+from lib.analysis_helpers import aggregate_emotions, generate_insights
+from lib.logger import get_logger
+
+# ---------------------------------------------------------------
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup
     try:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
@@ -67,28 +90,32 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"⚠️  Failed to create database tables: {str(e)}")
         print("ℹ️  App will continue running (using local SQLite)")
-    
+
     yield
-    
-    # Shutdown
+
     await engine.dispose()
 
 
+# -------------------- FASTAPI APP --------------------
 
-#this is Prevent the CORS issues
 app = FastAPI(title="Career Prediction")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"], 
+    allow_origins=[
+        "http://localhost:3000"],
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
-#this is the root path
+
+# -------------------- ROOT --------------------
+
 @app.get("/")
 def root():
     return {"status": "Career Prediction API running"}
+
+# -------------------- CAREER PREDICTION --------------------
 
 @app.post("/predict-career")
 def predict_career_route(inp: StudentInputGuide):
@@ -103,7 +130,7 @@ def predict_career(student: StudentInput):
 def debug_endpoint(student: StudentInput):
     return {"received": student.dict()}
 
-#---career-market---------------------------------------------------------------------------------------
+# -------------------- AUTH --------------------
 
 @app.post("/auth/signup")
 async def signup_endpoint(payload: dict[str, Any]) -> JSONResponse:
@@ -116,11 +143,14 @@ async def login_endpoint(payload: dict[str, Any]) -> JSONResponse:
 @app.post("/auth/forgot-password")
 async def forgot_password_endpoint(payload: dict[str, Any]) -> JSONResponse:
     return forgot_password_service(payload)
-#----------------------------------------------------------------------------
+
+# -------------------- HEALTH --------------------
 
 @app.get("/health")
 def health() -> dict[str, str]:
     return health_service()
+
+# -------------------- CV --------------------
 
 @app.post("/parse")
 def parse_cv_endpoint(file: UploadFile = File(...)):
@@ -134,6 +164,8 @@ def get_latest_cv_endpoint(request: Request):
 def get_cv_file_endpoint(id: str, request: Request):
     return cv_service.get_cv_file_response(id, request)
 
+# -------------------- PROFILE --------------------
+
 @app.get("/profile")
 def get_profile_endpoint(request: Request) -> JSONResponse:
     return get_profile_service(request)
@@ -141,6 +173,8 @@ def get_profile_endpoint(request: Request) -> JSONResponse:
 @app.put("/profile")
 async def put_profile_endpoint(payload: dict[str, Any], request: Request) -> JSONResponse:
     return put_profile_service(payload, request)
+
+# -------------------- JOBS --------------------
 
 @app.get("/jobs")
 def get_jobs_endpoint() -> JSONResponse:
@@ -154,6 +188,8 @@ def get_job_file_endpoint(name: str) -> FileResponse:
 async def refresh_jobs_endpoint(request: Request, payload: dict[str, Any] | None = None) -> JSONResponse:
     return refresh_jobs_service(request, payload)
 
+# -------------------- TRENDS --------------------
+
 @app.get("/trends/history")
 def get_trend_history_endpoint() -> JSONResponse:
     return get_trend_history_service()
@@ -166,6 +202,8 @@ def get_trends_endpoint() -> JSONResponse:
 async def seed_trends_endpoint(request: Request, payload: dict[str, Any] | None = None) -> JSONResponse:
     return seed_trends_service(request, payload)
 
+# -------------------- RANKED --------------------
+
 @app.get("/ranked")
 def get_ranked_endpoint() -> JSONResponse:
     return get_ranked_service()
@@ -174,10 +212,162 @@ def get_ranked_endpoint() -> JSONResponse:
 def get_ranked_summary_endpoint() -> JSONResponse:
     return get_ranked_summary_service()
 
+# -------------------- ANALYSIS --------------------
+
 @app.post("/analyse")
 async def analyse_endpoint(request: Request, payload: dict[str, Any] | None = None) -> JSONResponse:
     return await analyse_service(request, payload)
 
+# -------------------- USER ROUTER --------------------
 
-# Authentication
 app.include_router(router, prefix="/api/users")
+
+# ============================================================
+#           YOUR AI CAREER INTERVIEW SYSTEM
+# ============================================================
+
+logger = get_logger(__name__)
+
+try:
+    career_service = CareerService(model_dir="models/Personality_Career")
+    logger.info("[DONE] Career Service initialized")
+except Exception as e:
+    logger.error(f"Career Service failed: {str(e)}")
+    career_service = None
+
+
+@app.get("/api/questions")
+async def get_questions():
+    logger.info("Fetching interview questions")
+    return {"questions": INTERVIEW_QUESTIONS}
+
+
+@app.post("/api/analyze", response_model=AnalyzeResponse)
+async def analyze_interview(request: AnalyzeRequest):
+
+    if not career_service:
+        raise HTTPException(status_code=503, detail="Career service unavailable")
+
+    try:
+        logger.info(f"Analyzing session for {request.userName}")
+
+        aggregated = aggregate_emotions(request.emotionHistory)
+
+        result = career_service.predict_career(emotions=aggregated)
+
+        personality = result['personality']
+        top_career = result['predicted_career']
+
+        top_careers_data = []
+        other_careers_data = []
+
+        for i, item in enumerate(result['top_careers']):
+            details = CAREER_DETAILS.get(item['career'], {})
+
+            rec = CareerRecommendation(
+                career=item['career'],
+                confidence=item['confidence'],
+                description=details.get('description', ""),
+                skills=details.get('skills', []),
+                growth_path=details.get('growth_path'),
+                justification=item.get('justification')
+            )
+
+            if i == 0:
+                top_careers_data.append(rec)
+            else:
+                other_careers_data.append(rec)
+
+        insights = generate_insights(personality, top_career, aggregated)
+
+        timeline = [
+            {
+                "time": item.timestamp if item.timestamp else f"Q{item.questionId}",
+                "emotions": item.emotions.model_dump()
+            }
+            for item in request.emotionHistory
+        ]
+
+        response = AnalyzeResponse(
+            userName=request.userName,
+            aggregatedEmotions=aggregated,
+            personality=PersonalityResult(**personality),
+            topCareers=top_careers_data,
+            otherCareers=other_careers_data,
+            emotionTimeline=timeline,
+            insights=insights,
+            blinkRate=request.blinkRate
+        )
+
+        return response
+
+    except Exception as e:
+        logger.error(str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# -------------------- WEBSOCKET --------------------
+
+@app.websocket("/ws/analyze")
+async def websocket_analyze(websocket: WebSocket):
+
+    await websocket.accept()
+
+    STANDARD_EMOTIONS = ['angry','disgust','fear','happy','sad','surprise','neutral']
+    session_sums = {k:0.0 for k in STANDARD_EMOTIONS}
+    session_count = 0
+
+    try:
+        while True:
+
+            data = await websocket.receive_text()
+            message = WSMessage.model_validate_json(data)
+
+            new_emotions = message.emotions
+
+            if new_emotions:
+                emo_dict = new_emotions.model_dump()
+                for k in STANDARD_EMOTIONS:
+                    session_sums[k] += emo_dict.get(k,0.0)
+                session_count += 1
+
+            if session_count == 0:
+                continue
+
+            current_aggregated = {
+                k:(session_sums[k]/session_count)
+                for k in STANDARD_EMOTIONS
+            }
+
+            loop = asyncio.get_event_loop()
+
+            prediction = await loop.run_in_executor(
+                None,
+                lambda: career_service.predict_career(emotions=current_aggregated)
+            )
+
+            await websocket.send_json({
+                "type":"LIVE_INSIGHT",
+                "topCareer":prediction['predicted_career'],
+                "confidence":prediction['top_careers'][0]['confidence'],
+                "dominantEmotion":max(current_aggregated.items(), key=lambda x:x[1])[0],
+                "personality":prediction['personality']
+            })
+
+    except WebSocketDisconnect:
+        logger.info("WebSocket disconnected")
+
+
+# -------------------- SHUTDOWN --------------------
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    logger.info("Shutting down application...")
+
+
+# -------------------- RUN SERVER --------------------
+
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run(app, host="0.0.0.0", port=8000)
