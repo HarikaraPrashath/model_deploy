@@ -96,6 +96,16 @@ class RankedJob(Base):
     matched_nice_to_have = Column(JSONB, nullable=False, default=list)
     weighted_components = Column(JSONB, nullable=False, default=dict)
     explanations = Column(JSONB, nullable=False, default=list)
+    ocr_text = Column(Text, nullable=True)
+    regex_skills_found = Column(JSONB, nullable=False, default=list)
+    llm_skills_found = Column(JSONB, nullable=True, default=list)
+    llm_must_have_skills = Column(JSONB, nullable=True, default=list)
+    llm_nice_to_have_skills = Column(JSONB, nullable=True, default=list)
+    extraction_source = Column(String, nullable=True)
+    extraction_metadata = Column(JSONB, nullable=False, default=dict)
+    vision_skills_found = Column(JSONB, nullable=False, default=list)
+    vision_must_have_skills = Column(JSONB, nullable=False, default=list)
+    vision_nice_to_have_skills = Column(JSONB, nullable=False, default=list)
     created_at = Column(DateTime, default=_utcnow, nullable=False, index=True)
 
 
