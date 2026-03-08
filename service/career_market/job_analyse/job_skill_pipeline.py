@@ -8,6 +8,8 @@ import math
 import os
 import re
 import sys
+import base64
+import subprocess
 from pathlib import Path
 from dataclasses import dataclass
 from typing import Dict, List, Optional
@@ -202,13 +204,11 @@ class JobParsed:
 
 
 def ocr_image_to_text(image_path: str) -> Optional[str]:
+    text: Optional[str] = None
     try:
-        from PIL import Image
         import pytesseract
-    except Exception:
-        return None
+        from PIL import Image
 
-    try:
         tess_cmd = os.environ.get("TESSERACT_CMD")
         if tess_cmd:
             pytesseract.pytesseract.tesseract_cmd = tess_cmd
@@ -217,7 +217,73 @@ def ocr_image_to_text(image_path: str) -> Optional[str]:
             if os.path.exists(default_tess):
                 pytesseract.pytesseract.tesseract_cmd = default_tess
         img = Image.open(image_path)
-        return pytesseract.image_to_string(img, lang="eng")
+        text = pytesseract.image_to_string(img, lang="eng")
+    except Exception:
+        text = None
+
+    if text and text.strip():
+        return text
+
+    try:
+        tess_cmd = os.environ.get("TESSERACT_CMD") or r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+        if os.path.exists(tess_cmd):
+            proc = subprocess.run(
+                [tess_cmd, image_path, "stdout", "-l", "eng", "--psm", "6"],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="ignore",
+                timeout=60,
+                check=False,
+            )
+            cli_text = (proc.stdout or "").strip()
+            if cli_text:
+                return cli_text
+    except Exception:
+        pass
+
+    # Fallback to the OCR stack already used by the CV extractor.
+    try:
+        from resume_pipeline import extract_text_hybrid
+
+        result = extract_text_hybrid(image_path)
+        fallback_text = str(result.get("text", "") or "").strip()
+        if fallback_text:
+            return fallback_text
+    except Exception:
+        pass
+
+    if str(os.environ.get("ENABLE_JOB_IMAGE_VISION_FALLBACK", "")).lower() not in ("1", "true", "yes"):
+        return None
+
+    try:
+        import requests
+
+        with open(image_path, "rb") as f:
+            encoded = base64.b64encode(f.read()).decode("ascii")
+
+        host = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434").strip().rstrip("/")
+        model = os.environ.get("OLLAMA_VISION_MODEL", "granite3.2-vision:2b").strip()
+        prompt = (
+            "Extract all readable text from this job advertisement image. "
+            "Return only the text content with line breaks preserved. "
+            "Do not summarize or explain."
+        )
+        resp = requests.post(
+            f"{host}/api/generate",
+            json={
+                "model": model,
+                "prompt": prompt,
+                "images": [encoded],
+                "stream": False,
+            },
+            timeout=90,
+        )
+        if resp.status_code != 200:
+            return None
+        data = resp.json() if resp.content else {}
+        vision_text = str(data.get("response", "") or "").strip()
+        return vision_text or None
     except Exception:
         return None
 
@@ -354,7 +420,7 @@ def score_job(
     missing_must = sorted(must_set - user_skill_set)
     matched_nice = sorted(nice_set & user_skill_set)
 
-    must_cov = (len(matched_must) / len(must_set)) if must_set else 1.0
+    must_cov = (len(matched_must) / len(must_set)) if must_set else 0.0
     core_cov = _weighted_coverage(core_set, user_skill_set, idf) if core_set else 0.0
     nice_cov = (len(matched_nice) / len(nice_set)) if nice_set else 0.0
     signal_cov = (
@@ -376,12 +442,22 @@ def score_job(
                 f"Need at least {required_hits}."
             )
 
-    weighted_raw = (
-        WEIGHTS["must_have"] * must_cov
-        + WEIGHTS["core"] * core_cov
-        + WEIGHTS["nice_to_have"] * nice_cov
-        + WEIGHTS["signals"] * signal_cov
-    ) * 100.0
+    active_weights = {
+        "must_have": WEIGHTS["must_have"] if must_set else 0.0,
+        "core": WEIGHTS["core"] if core_set else 0.0,
+        "nice_to_have": WEIGHTS["nice_to_have"] if nice_set else 0.0,
+        "signals": WEIGHTS["signals"] if job.signals else 0.0,
+    }
+    total_active_weight = sum(active_weights.values())
+    if total_active_weight > 0:
+        weighted_raw = (
+            active_weights["must_have"] * must_cov
+            + active_weights["core"] * core_cov
+            + active_weights["nice_to_have"] * nice_cov
+            + active_weights["signals"] * signal_cov
+        ) / total_active_weight * 100.0
+    else:
+        weighted_raw = 0.0
     if not gate_pass:
         weighted_raw *= 0.55
 
