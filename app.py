@@ -104,7 +104,7 @@ def debug_endpoint(student: StudentInput):
     return {"received": student.dict()}
 
 #---career-market---------------------------------------------------------------------------------------
-
+#------------temp--------------------
 @app.post("/auth/signup")
 async def signup_endpoint(payload: dict[str, Any]) -> JSONResponse:
     return signup_service(payload)
