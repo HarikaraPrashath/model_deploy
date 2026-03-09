@@ -1,25 +1,26 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[1]:
-
-
 import sys
 import os
 import re
 import time
 import json
 import requests
+import joblib
+import numpy as np
+import pandas as pd
+
 from io import BytesIO
 from urllib.parse import urljoin
 from collections import Counter
 from typing import Dict, List, Set, Tuple
 
-model_path = "models/Career_Prediction/career_model_pipeline.joblib"
+# ------------------ MODEL PATH
+model_path = r"C:\Users\user\Desktop\New folder\Reserch\New folder\A\model_deploy\models\Career_Market\cv_fit_lightgbm.joblib"
 
-# In[2]:
 
-
+# ------------------ NOTEBOOK SETUP
 def notebook_setup() -> None:
     """Optional setup for Colab/Linux notebooks."""
     try:
@@ -27,7 +28,7 @@ def notebook_setup() -> None:
     except NameError:
         return
 
-    print(" Installing dependencies...")
+    print("Installing dependencies...")
     get_ipython().system('apt-get update -qq')
     get_ipython().system('apt-get install -yqq wget unzip > /dev/null 2>&1')
     get_ipython().system('wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | apt-key add -')
@@ -37,25 +38,24 @@ def notebook_setup() -> None:
 
     import subprocess
     chrome_version = subprocess.getoutput("google-chrome --version")
-    version = re.search(r"\d+\.\d+\.\d+", chrome_version).group()
+    version_match = re.search(r"\d+\.\d+\.\d+", chrome_version)
+    version = version_match.group() if version_match else ""
     print(f"Chrome version: {version}")
 
-    get_ipython().system('wget -q https://edgedl.me.gvt1.com/edgedl/chrome/chrome-for-testing/{version}/linux64/chromedriver-linux64.zip')
-    get_ipython().system('unzip -o chromedriver-linux64.zip > /dev/null 2>&1')
-    get_ipython().system('chmod +x chromedriver-linux64/chromedriver')
-    get_ipython().system('mv chromedriver-linux64/chromedriver /usr/bin/chromedriver')
+    if version:
+        get_ipython().system(f'wget -q https://storage.googleapis.com/chrome-for-testing-public/{version}/linux64/chromedriver-linux64.zip')
+        get_ipython().system('unzip -o chromedriver-linux64.zip > /dev/null 2>&1')
+        get_ipython().system('chmod +x chromedriver-linux64/chromedriver')
+        get_ipython().system('mv chromedriver-linux64/chromedriver /usr/bin/chromedriver')
 
     get_ipython().system('apt-get install -yqq tesseract-ocr libtesseract-dev > /dev/null 2>&1')
-    get_ipython().system('pip install -q selenium beautifulsoup4 pandas pillow pytesseract spacy nltk > /dev/null')
+    get_ipython().system('pip install -q selenium beautifulsoup4 pandas pillow pytesseract spacy nltk joblib lightgbm > /dev/null')
     get_ipython().system('python -m spacy download en_core_web_sm > /dev/null 2>&1')
 
     print("All dependencies installed!\n")
 
 
-# In[3]:
-
-
-# ------------Import Libraries
+# ------------ IMPORT LIBRARIES
 from bs4 import BeautifulSoup
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -67,14 +67,13 @@ import pytesseract
 import spacy
 import nltk
 
-# Download NLTK data
 nltk.download('punkt', quiet=True)
 nltk.download('stopwords', quiet=True)
-from nltk.corpus import stopwords
-from nltk.tokenize import word_tokenize
 nltk.download('averaged_perceptron_tagger', quiet=True)
 
-# Load spaCy model
+from nltk.corpus import stopwords
+from nltk.tokenize import word_tokenize
+
 try:
     nlp = spacy.load("en_core_web_sm")
 except OSError as exc:
@@ -86,16 +85,10 @@ except OSError as exc:
 print("Libraries loaded successfully!\n")
 
 
-# In[4]:
-
-
-# -------------- Configuration & Sample Student Profile
-
-# Configuration
+# -------------- CONFIGURATION & SAMPLE STUDENT PROFILE
 KEYWORD = "software engineer"
 OUTPUT_FOLDER = "topjobs_ads"
 
-# Sample Student Profile (replace with actual profile from Component 1)
 STUDENT_PROFILE = {
     "name": "John Doe",
     "education": {
@@ -138,11 +131,126 @@ print(f"Skills: {len(STUDENT_PROFILE['technical_skills'])} technical, {len(STUDE
 print(f"Experience: {len(STUDENT_PROFILE['experience'])} positions\n")
 
 
+# ------------------ ML MODEL UTILITIES
+_fit_model = None
 
-# In[5]:
+
+def load_fit_model():
+    """Load the trained LightGBM model once."""
+    global _fit_model
+    if _fit_model is None:
+        if not os.path.exists(model_path):
+            raise FileNotFoundError(f"Model file not found: {model_path}")
+        _fit_model = joblib.load(model_path)
+        print(f"Fit score model loaded from: {model_path}")
+    return _fit_model
 
 
-# ----------------- Skill Extraction Utilities
+def safe_join(items):
+    """Convert list/None/string into clean text."""
+    if items is None:
+        return ""
+    if isinstance(items, list):
+        flattened = []
+        for x in items:
+            if isinstance(x, dict):
+                flattened.append(" ".join([str(v) for v in x.values()]))
+            else:
+                flattened.append(str(x))
+        return ", ".join(flattened)
+    return str(items)
+
+
+def build_student_experience_text(student_profile: Dict) -> str:
+    """Flatten student experience into text."""
+    experiences = student_profile.get("experience", [])
+    if not isinstance(experiences, list):
+        return ""
+
+    parts = []
+    for exp in experiences:
+        if isinstance(exp, dict):
+            role = exp.get("role", "")
+            company = exp.get("company", "")
+            duration = exp.get("duration", "")
+            responsibilities = safe_join(exp.get("responsibilities", []))
+            parts.append(f"{role} at {company}, duration: {duration}, responsibilities: {responsibilities}")
+        else:
+            parts.append(str(exp))
+
+    return " | ".join(parts)
+
+
+def build_model_features(
+    student_profile: Dict,
+    job: Dict,
+    matched_skills: set,
+    missing_skills: set,
+    match_percentage: float
+) -> pd.DataFrame:
+    """
+    Build single-row dataframe for model prediction.
+
+    IMPORTANT:
+    These column names must match the columns used when training
+    cv_fit_lightgbm.joblib.
+    """
+
+    education = student_profile.get("education", {})
+
+    feature_row = {
+        "job_title": job.get("position", ""),
+        "job_description": job.get("full_text", ""),
+        "required_skills_text": safe_join(job.get("required_skills", [])),
+
+        "student_technical_skills": safe_join(student_profile.get("technical_skills", [])),
+        "student_soft_skills": safe_join(student_profile.get("soft_skills", [])),
+        "student_projects": safe_join(student_profile.get("projects", [])),
+        "student_certifications": safe_join(student_profile.get("certifications", [])),
+        "student_experience_text": build_student_experience_text(student_profile),
+
+        "student_degree": education.get("degree", ""),
+        "student_university": education.get("university", ""),
+        "student_year": education.get("year", ""),
+        "student_gpa": float(education.get("gpa", 0) or 0),
+
+        "experience_required": int(job.get("experience_years", 0) or 0),
+
+        "skill_match_percentage": float(match_percentage),
+        "matched_skills_count": int(len(matched_skills)),
+        "missing_skills_count": int(len(missing_skills)),
+    }
+
+    return pd.DataFrame([feature_row])
+
+
+def predict_fit_score(
+    student_profile: Dict,
+    job: Dict,
+    matched_skills: set,
+    missing_skills: set,
+    match_percentage: float
+) -> float:
+    """Predict fit score using the trained LightGBM model."""
+    try:
+        model = load_fit_model()
+        features_df = build_model_features(
+            student_profile=student_profile,
+            job=job,
+            matched_skills=matched_skills,
+            missing_skills=missing_skills,
+            match_percentage=match_percentage
+        )
+        prediction = model.predict(features_df)[0]
+        prediction = max(0, min(100, float(prediction)))
+        return round(prediction, 2)
+
+    except Exception as e:
+        print(f"Model prediction failed for job {job.get('position', 'N/A')}: {e}")
+        return round(match_percentage, 2)
+
+
+# ----------------- SKILL EXTRACTION UTILITIES
 class UniversalSkillExtractor:
     """
     Extracts skills from job descriptions across ANY domain
@@ -152,7 +260,6 @@ class UniversalSkillExtractor:
     def __init__(self):
         self.stop_words = set(stopwords.words('english'))
 
-        # Common job description noise words to filter out
         self.noise_words = {
             'experience', 'required', 'preferred', 'must', 'should', 'will',
             'work', 'working', 'ability', 'strong', 'excellent', 'good',
@@ -162,7 +269,6 @@ class UniversalSkillExtractor:
             'including', 'related', 'various', 'similar', 'equivalent'
         }
 
-        # Keywords that indicate skill sections in job ads
         self.skill_section_markers = [
             'requirements', 'qualifications', 'skills required',
             'technical skills', 'competencies', 'must have',
@@ -170,7 +276,6 @@ class UniversalSkillExtractor:
             'job requirements', 'minimum qualifications'
         ]
 
-        # Patterns that indicate skills
         self.skill_patterns = [
             r'proficiency in ([^.,;]+)',
             r'experience with ([^.,;]+)',
@@ -183,37 +288,30 @@ class UniversalSkillExtractor:
         ]
 
     def extract_skill_sections(self, text: str) -> List[str]:
-        """Extract text sections that likely contain skill requirements"""
         sections = []
         text_lower = text.lower()
 
         for marker in self.skill_section_markers:
-            # Find text after each marker
             if marker in text_lower:
                 start_idx = text_lower.index(marker)
-                # Extract next 500 characters after marker
                 section = text[start_idx:start_idx + 500]
                 sections.append(section)
 
-        # If no specific sections found, use entire text
         if not sections:
             sections = [text]
 
         return sections
 
     def extract_phrases_with_nlp(self, text: str) -> Set[str]:
-        """Use NLP to extract meaningful noun phrases and entities"""
-        doc = nlp(text[:100000])  # Limit for performance
+        doc = nlp(text[:100000])
         phrases = set()
 
-        # Extract named entities (tools, technologies, organizations)
         for ent in doc.ents:
             if ent.label_ in ['ORG', 'PRODUCT', 'GPE', 'WORK_OF_ART', 'LAW']:
                 clean = self.clean_phrase(ent.text)
-                if clean and len(clean.split()) <= 4:  # Max 4 words
+                if clean and len(clean.split()) <= 4:
                     phrases.add(clean)
 
-        # Extract noun chunks (potential skills/tools)
         for chunk in doc.noun_chunks:
             clean = self.clean_phrase(chunk.text)
             if clean and len(clean.split()) <= 4:
@@ -222,14 +320,12 @@ class UniversalSkillExtractor:
         return phrases
 
     def extract_with_patterns(self, text: str) -> Set[str]:
-        """Extract skills using regex patterns"""
         skills = set()
         text_lower = text.lower()
 
         for pattern in self.skill_patterns:
             matches = re.findall(pattern, text_lower)
             for match in matches:
-                # Split by common separators
                 items = re.split(r'[,;&/]|\band\b|\bor\b', match)
                 for item in items:
                     clean = self.clean_phrase(item)
@@ -239,28 +335,20 @@ class UniversalSkillExtractor:
         return skills
 
     def extract_capitalized_terms(self, text: str) -> Set[str]:
-        """Extract capitalized terms (often tools, software, certifications)"""
-        # Find words that are capitalized (potential acronyms or proper nouns)
         words = text.split()
         capitalized = set()
 
         for word in words:
-            # Remove punctuation
             clean_word = re.sub(r'[^\w\s-]', '', word)
 
-            # Check if it's an acronym (2-6 uppercase letters)
             if re.match(r'^[A-Z]{2,6}$', clean_word):
                 capitalized.add(clean_word)
-
-            # Check if it's a capitalized term (not at sentence start)
             elif clean_word and clean_word[0].isupper() and len(clean_word) > 2:
                 capitalized.add(clean_word.lower())
 
         return capitalized
 
     def extract_bullet_points(self, text: str) -> List[str]:
-        """Extract bullet point items (often skills)"""
-        # Common bullet patterns
         bullet_patterns = [
             r'^\s*[-*]\s+(.+)',
             r'^\s*\d+\.\s+(.+)',
@@ -278,59 +366,39 @@ class UniversalSkillExtractor:
         return bullets
 
     def clean_phrase(self, phrase: str) -> str:
-        """Clean and normalize extracted phrases"""
-        # Convert to lowercase
         phrase = phrase.lower().strip()
-
-        # Remove leading/trailing punctuation
         phrase = re.sub(r'^[^\w]+|[^\w]+$', '', phrase)
-
-        # Remove possessives
         phrase = re.sub(r"'s\b", '', phrase)
 
-        # Skip if too short or too long
         if len(phrase) < 2 or len(phrase) > 50:
             return ''
 
-        # Skip if it's a noise word
         if phrase in self.noise_words or phrase in self.stop_words:
             return ''
 
-        # Skip if it's all numbers
         if phrase.replace(' ', '').isdigit():
             return ''
 
         return phrase
 
     def extract_skills(self, text: str) -> Set[str]:
-        """
-        Main method: Extract all potential skills from text
-        Combines multiple extraction techniques
-        """
         all_skills = set()
 
-        # 1. Extract from skill sections
         sections = self.extract_skill_sections(text)
         for section in sections:
-            # Use NLP on sections
             all_skills.update(self.extract_phrases_with_nlp(section))
-            # Use patterns
             all_skills.update(self.extract_with_patterns(section))
 
-        # 2. Extract capitalized terms (acronyms, software names)
         all_skills.update(self.extract_capitalized_terms(text))
 
-        # 3. Extract from bullet points
         bullets = self.extract_bullet_points(text)
         for bullet in bullets:
             clean = self.clean_phrase(bullet)
             if clean and len(clean.split()) <= 5:
                 all_skills.add(clean)
 
-        # 4. Use patterns on full text
         all_skills.update(self.extract_with_patterns(text))
 
-        # Filter out remaining noise
         filtered_skills = {
             skill for skill in all_skills
             if skill and not all(word in self.stop_words for word in skill.split())
@@ -339,19 +407,12 @@ class UniversalSkillExtractor:
         return filtered_skills
 
     def categorize_skills_automatically(self, all_job_skills: List[Set[str]]) -> Dict[str, List[str]]:
-        """
-        Automatically categorize skills based on frequency and co-occurrence
-        across multiple job descriptions
-        """
-        # Count skill frequency
         skill_counter = Counter()
         for job_skills in all_job_skills:
             skill_counter.update(job_skills)
 
-        # Get most common skills (these are likely important for the field)
         common_skills = [skill for skill, count in skill_counter.most_common(50)]
 
-        # Simple categorization based on keywords
         categories = {
             'technical_tools': [],
             'software_skills': [],
@@ -362,7 +423,6 @@ class UniversalSkillExtractor:
             'other': []
         }
 
-        # Keywords for categorization
         tool_keywords = ['software', 'tool', 'platform', 'system', 'application']
         cert_keywords = ['certification', 'certified', 'license', 'accreditation']
         method_keywords = ['methodology', 'approach', 'framework', 'method']
@@ -385,21 +445,13 @@ class UniversalSkillExtractor:
             else:
                 categories['domain_knowledge'].append(skill)
 
-        # Remove empty categories
         return {k: v for k, v in categories.items() if v}
 
 
-#  Helper Functions
-
+# ------------------ HELPER FUNCTIONS
 def extract_experience_years(text: str) -> int:
     """
-    Extract required years of experience from job description
-
-    Args:
-        text: Job description text
-
-    Returns:
-        Number of years required (0 if not specified)
+    Extract required years of experience from job description.
     """
     patterns = [
         r'(\d+)\+?\s*(?:years?|yrs?).*?(?:experience|exp)',
@@ -419,26 +471,12 @@ def extract_experience_years(text: str) -> int:
             except (ValueError, IndexError):
                 continue
 
-    return 0  # No specific experience mentioned
+    return 0
 
-
-#  Usage Example
 
 def analyze_jobs_universal(job_texts: List[str], student_profile: Dict) -> Dict:
-    """
-    Analyze jobs for ANY field and compare with student profile
-
-    Args:
-        job_texts: List of job description texts
-        student_profile: Student's profile with skills
-
-    Returns:
-        Complete analysis with skill gaps and matches
-    """
-
     extractor = UniversalSkillExtractor()
 
-    # Extract skills from all job descriptions
     print("Extracting skills from job descriptions...")
     all_job_skills = []
     job_analyses = []
@@ -455,7 +493,6 @@ def analyze_jobs_universal(job_texts: List[str], student_profile: Dict) -> Dict:
 
         print(f"  Job {i}: Found {len(skills)} skills")
 
-    # Aggregate all unique skills across jobs
     all_unique_skills = set()
     skill_frequency = Counter()
 
@@ -465,20 +502,17 @@ def analyze_jobs_universal(job_texts: List[str], student_profile: Dict) -> Dict:
 
     print(f"\nTotal unique skills found: {len(all_unique_skills)}")
 
-    # Categorize skills automatically
     categories = extractor.categorize_skills_automatically(all_job_skills)
 
-    # Normalize student skills
     student_skills = set()
     for skill_list in student_profile.values():
         if isinstance(skill_list, list):
-            student_skills.update([s.lower().strip() for s in skill_list])
+            student_skills.update([str(s).lower().strip() for s in skill_list])
         elif isinstance(skill_list, str):
             student_skills.add(skill_list.lower().strip())
 
     print(f"Student has {len(student_skills)} skills in profile\n")
 
-    # Compare with each job
     job_matches = []
     for i, job_skills in enumerate(all_job_skills, 1):
         matched = student_skills.intersection(job_skills)
@@ -494,12 +528,10 @@ def analyze_jobs_universal(job_texts: List[str], student_profile: Dict) -> Dict:
             'total_required': len(job_skills)
         })
 
-    # Find most common missing skills
     all_missing = Counter()
     for match in job_matches:
         all_missing.update(match['missing_skills'])
 
-    # Analysis summary
     analysis = {
         'total_jobs': len(job_texts),
         'total_unique_skills': len(all_unique_skills),
@@ -520,23 +552,14 @@ def analyze_jobs_universal(job_texts: List[str], student_profile: Dict) -> Dict:
     return analysis
 
 
-
-# In[6]:
-
-
-# -------------OCR Processing
-
+# ------------- OCR PROCESSING
 def preprocess_image_for_ocr(img: Image.Image) -> Image.Image:
-    """Preprocess image to improve OCR accuracy"""
-    # Convert to grayscale
     img = img.convert('L')
 
-    # Increase contrast
     from PIL import ImageEnhance
     enhancer = ImageEnhance.Contrast(img)
     img = enhancer.enhance(2)
 
-    # Resize if too small
     if img.width < 1000:
         scale = 1000 / img.width
         img = img.resize((int(img.width * scale), int(img.height * scale)))
@@ -545,10 +568,8 @@ def preprocess_image_for_ocr(img: Image.Image) -> Image.Image:
 
 
 def perform_ocr(img: Image.Image) -> str:
-    """Perform OCR on image and return extracted text"""
     try:
         processed = preprocess_image_for_ocr(img)
-        # Configure Tesseract
         custom_config = r'--oem 3 --psm 6'
         text = pytesseract.image_to_string(processed, config=custom_config)
         return text
@@ -613,17 +634,14 @@ def _analysis_path(prefix: str | None, name: str) -> str | None:
         return None
     return f"{prefix.rstrip('/')}/{name}"
 
-print(" OCR utilities loaded\n")
+
+print("OCR utilities loaded\n")
 
 
-# In[7]:
-
-
-# -------------- Web Scraping Functions
-
+# -------------- WEB SCRAPING FUNCTIONS
 def clean_name(s: str) -> str:
-    """Clean filename"""
     return re.sub(r'[^\w\- ]', '_', s.strip())[:100]
+
 
 def scrape_topjobs(
     keyword: str,
@@ -646,26 +664,25 @@ def scrape_topjobs(
     driver = webdriver.Chrome(options=options)
     wait = WebDriverWait(driver, 20)
 
-    print(f" Searching for: {keyword.upper()}")
+    print(f"Searching for: {keyword.upper()}")
     driver.get("https://www.topjobs.lk/index.jsp")
     time.sleep(3)
 
-    # Perform search
     driver.find_element(By.ID, "txtKeyWord").clear()
     driver.find_element(By.ID, "txtKeyWord").send_keys(keyword)
     driver.find_element(By.ID, "btnSearch").click()
 
     try:
         wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "table#table")))
-    except:
-        print(" No results found")
+    except Exception:
+        print("No results found")
         driver.quit()
         return []
 
     time.sleep(4)
     soup = BeautifulSoup(driver.page_source, "html.parser")
     rows = soup.select("table#table tbody tr[onclick*='createAlert']")
-    print(f" Found {len(rows)} job ads\n")
+    print(f"Found {len(rows)} job ads\n")
 
     jobs = []
     for i, row in enumerate(rows, 1):
@@ -681,12 +698,11 @@ def scrape_topjobs(
         url = f"https://www.topjobs.lk/employer/JobAdvertismentServlet?rid={rid}&ac={ac}&jc={jc}&ec={ec}&pg=applicant/vacancybyfunctionalarea.jsp"
 
         jobs.append({"ref": ref, "pos": pos, "emp": emp, "url": url})
-        print(f"  {i:2d}. [{ref}] {pos}  {emp}")
+        print(f"  {i:2d}. [{ref}] {pos} - {emp}")
 
-    # Download job details
     metadata = []
     for idx, job in enumerate(jobs, 1):
-        print(f"\n {idx}/{len(jobs)}  {job['pos']} ({job['ref']})")
+        print(f"\n{idx}/{len(jobs)} - {job['pos']} ({job['ref']})")
         safe = f"{job['ref']}_{clean_name(job['pos'])}"
 
         job_data = {
@@ -713,8 +729,7 @@ def scrape_topjobs(
             img_in_remark = remark_div.find("img")
 
             if img_in_remark and img_in_remark.get("src"):
-                # Image-based ad
-                print("    Image-based ad")
+                print("   Image-based ad")
                 job_data["type"] = "image"
 
                 src = urljoin(job["url"], img_in_remark.get("src"))
@@ -725,9 +740,10 @@ def scrape_topjobs(
                         content = r.content
                         if write_local:
                             path = f"{output_folder}/{safe}_ad.{ext}"
-                            open(path, "wb").write(content)
+                            with open(path, "wb") as f:
+                                f.write(content)
                             job_data["files"].append(os.path.basename(path))
-                            print(f"    Image saved: {os.path.basename(path)}")
+                            print(f"   Image saved: {os.path.basename(path)}")
                         if not write_local:
                             try:
                                 img = Image.open(BytesIO(content))
@@ -740,10 +756,9 @@ def scrape_topjobs(
                             if image_url:
                                 job_data["image_url"] = image_url
                 except Exception as e:
-                    print(f"    Image download failed: {e}")
+                    print(f"   Image download failed: {e}")
             else:
-                # Text-based ad
-                print("    Text-based ad")
+                print("   Text-based ad")
                 job_data["type"] = "text"
 
                 text_content = remark_div.get_text(separator="\n", strip=True)
@@ -753,9 +768,8 @@ def scrape_topjobs(
                     with open(text_path, "w", encoding="utf-8") as f:
                         f.write(text_content)
                     job_data["files"].append(os.path.basename(text_path))
-                    print(f"    Text saved")
+                    print("   Text saved")
 
-                    # Screenshot
                     try:
                         element = driver.find_element(By.ID, "remark")
                         driver.execute_script("arguments[0].scrollIntoView(true);", element)
@@ -776,27 +790,24 @@ def scrape_topjobs(
                         cropped = img.crop((left, top, right, bottom))
                         cropped.save(screenshot_path)
                         job_data["files"].append(os.path.basename(screenshot_path))
-                        print(f"    Screenshot saved")
+                        print("   Screenshot saved")
                     except Exception as e:
-                        print(f"    Screenshot failed: {e}")
+                        print(f"   Screenshot failed: {e}")
 
             metadata.append(job_data)
 
         except Exception as e:
-            print(f"    Error: {e}")
+            print(f"   Error: {e}")
             continue
 
     driver.quit()
     return metadata
 
+
 print("Scraping functions loaded\n")
 
 
-# In[8]:
-
-
-# ------------------ Job Requirement Analysis
-
+# ------------------ JOB REQUIREMENT ANALYSIS
 def analyze_job_requirements(
     metadata: List[Dict],
     output_folder: str,
@@ -807,9 +818,7 @@ def analyze_job_requirements(
 
     print("ANALYZING JOB REQUIREMENTS")
 
-    # Initialize universal extractor
     extractor = UniversalSkillExtractor()
-
     analyzed_jobs = []
 
     for idx, job in enumerate(metadata, 1):
@@ -817,8 +826,6 @@ def analyze_job_requirements(
 
         job_text = job.get("raw_text", "")
 
-        # If scraper stored text in files (e.g., metadata from TopJobs_scraper_t2),
-        # load the first available text file when raw_text is missing.
         if write_local and not job_text:
             for file in job.get("files", []):
                 if str(file).lower().endswith(".txt"):
@@ -832,7 +839,6 @@ def analyze_job_requirements(
                         if job_text:
                             break
 
-        # Perform OCR on images when text is missing
         if job.get("type") == "image" and not job_text:
             if write_local:
                 for file in job.get("files", []):
@@ -849,7 +855,7 @@ def analyze_job_requirements(
                         ocr_path = image_path.replace(os.path.splitext(image_path)[1], '_ocr.txt')
                         with open(ocr_path, 'w', encoding='utf-8') as f:
                             f.write(ocr_text)
-                        print(f"    OCR text saved: {os.path.basename(ocr_path)}")
+                        print(f"   OCR text saved: {os.path.basename(ocr_path)}")
             else:
                 image_url = job.get("image_url")
                 if isinstance(image_url, str) and image_url.startswith("http"):
@@ -861,7 +867,6 @@ def analyze_job_requirements(
                     except Exception:
                         pass
 
-        # Extract skills using universal extractor
         required_skills = extractor.extract_skills(job_text)
         experience_years = extract_experience_years(job_text)
 
@@ -879,14 +884,12 @@ def analyze_job_requirements(
 
         analyzed_jobs.append(analysis)
 
-        print(f"    Found {len(required_skills)} skills")
-        print(f"    Experience required: {experience_years} years\n")
+        print(f"   Found {len(required_skills)} skills")
+        print(f"   Experience required: {experience_years} years\n")
 
-    # Auto-categorize skills after analyzing all jobs
     all_skills_sets = [set(job['required_skills']) for job in analyzed_jobs]
     skill_categories = extractor.categorize_skills_automatically(all_skills_sets)
 
-    # Add categorization to each job
     for job in analyzed_jobs:
         job['skills_by_category'] = {}
         for category, skills_list in skill_categories.items():
@@ -896,23 +899,18 @@ def analyze_job_requirements(
 
     return analyzed_jobs
 
+
 print("Analysis functions loaded\n")
 
 
-# In[9]:
-
-
-# --------------- Skill Gap Analysis
-
+# --------------- SKILL GAP ANALYSIS
 def perform_skill_gap_analysis(student_profile: Dict, analyzed_jobs: List[Dict]) -> Dict:
     """Compare student skills with job requirements and identify gaps"""
 
     print("SKILL GAP ANALYSIS")
 
-    # NEW: More flexible student skill extraction
     student_skills = set()
 
-    # Extract from all skill-related fields in profile
     skill_fields = ['technical_skills', 'soft_skills', 'tools', 'software',
                     'certifications', 'languages', 'frameworks']
 
@@ -925,20 +923,17 @@ def perform_skill_gap_analysis(student_profile: Dict, analyzed_jobs: List[Dict])
             elif isinstance(skills_data, str):
                 student_skills.add(skills_data.lower().strip())
 
-    # Also extract skills mentioned in projects/experience descriptions
     if 'projects' in student_profile:
         for project in student_profile['projects']:
             if isinstance(project, dict) and 'technologies' in project:
                 for tech in project['technologies']:
                     student_skills.add(tech.lower().strip())
             elif isinstance(project, str):
-                # Simple extraction from project descriptions
                 words = project.lower().split()
                 student_skills.update(words)
 
     print(f"Student has {len(student_skills)} skills")
 
-    # Rest remains the same...
     all_required_skills = Counter()
     job_matches = []
 
@@ -946,7 +941,6 @@ def perform_skill_gap_analysis(student_profile: Dict, analyzed_jobs: List[Dict])
         required = set(job["required_skills"])
         all_required_skills.update(required)
 
-        # Calculate match percentage
         matched_skills = student_skills.intersection(required)
         missing_skills = required - student_skills
 
@@ -955,38 +949,43 @@ def perform_skill_gap_analysis(student_profile: Dict, analyzed_jobs: List[Dict])
         else:
             match_percentage = 0
 
+        predicted_fit_score = predict_fit_score(
+            student_profile=student_profile,
+            job=job,
+            matched_skills=matched_skills,
+            missing_skills=missing_skills,
+            match_percentage=match_percentage
+        )
+
         job_matches.append({
             "position": job["position"],
             "employer": job["employer"],
             "ref": job["ref"],
             "url": job["url"],
             "match_percentage": round(match_percentage, 2),
+            "predicted_fit_score": predicted_fit_score,
             "matched_skills": list(matched_skills),
             "missing_skills": list(missing_skills),
             "total_required": len(required),
             "experience_years": job["experience_years"]
         })
 
-    # Sort jobs by match percentage
-    job_matches.sort(key=lambda x: x["match_percentage"], reverse=True)
+    job_matches.sort(key=lambda x: x["predicted_fit_score"], reverse=True)
 
-    # Identify most common missing skills
     all_missing = Counter()
     for match in job_matches:
         all_missing.update(match["missing_skills"])
 
-    # Remove skills student already has
     for skill in student_skills:
         if skill in all_missing:
             del all_missing[skill]
 
     top_missing_skills = all_missing.most_common(15)
 
-    # Calculate overall readiness
     total_jobs = len(job_matches)
-    highly_qualified = len([j for j in job_matches if j["match_percentage"] >= 70])
-    moderately_qualified = len([j for j in job_matches if 40 <= j["match_percentage"] < 70])
-    needs_improvement = len([j for j in job_matches if j["match_percentage"] < 40])
+    highly_qualified = len([j for j in job_matches if j["predicted_fit_score"] >= 70])
+    moderately_qualified = len([j for j in job_matches if 40 <= j["predicted_fit_score"] < 70])
+    needs_improvement = len([j for j in job_matches if j["predicted_fit_score"] < 40])
 
     gap_analysis = {
         "student_name": student_profile.get("name", "Student"),
@@ -999,20 +998,22 @@ def perform_skill_gap_analysis(student_profile: Dict, analyzed_jobs: List[Dict])
             "highly_qualified": highly_qualified,
             "moderately_qualified": moderately_qualified,
             "needs_improvement": needs_improvement,
-            "average_match": round(sum(j["match_percentage"] for j in job_matches) / total_jobs if total_jobs > 0 else 0, 2)
+            "average_match": round(
+                sum(j["match_percentage"] for j in job_matches) / total_jobs if total_jobs > 0 else 0, 2
+            ),
+            "average_predicted_fit_score": round(
+                sum(j["predicted_fit_score"] for j in job_matches) / total_jobs if total_jobs > 0 else 0, 2
+            )
         }
     }
 
     return gap_analysis
 
+
 print("Gap analysis functions loaded\n")
 
 
-# In[10]:
-
-
-# ------------------Career Opportunity Prediction
-
+# ------------------ CAREER OPPORTUNITY PREDICTION
 def predict_career_opportunities(gap_analysis: Dict, student_profile: Dict) -> Dict:
     """Predict career opportunities and provide recommendations"""
 
@@ -1021,19 +1022,19 @@ def predict_career_opportunities(gap_analysis: Dict, student_profile: Dict) -> D
     job_matches = gap_analysis["job_matches"]
     top_missing = gap_analysis["top_missing_skills"]
 
-    # Categorize opportunities
-    immediate_opportunities = [j for j in job_matches if j["match_percentage"] >= 70]
-    short_term_opportunities = [j for j in job_matches if 50 <= j["match_percentage"] < 70]
-    long_term_opportunities = [j for j in job_matches if j["match_percentage"] < 50]
+    immediate_opportunities = [j for j in job_matches if j["predicted_fit_score"] >= 70]
+    short_term_opportunities = [j for j in job_matches if 50 <= j["predicted_fit_score"] < 70]
+    long_term_opportunities = [j for j in job_matches if j["predicted_fit_score"] < 50]
 
-    # Priority skills to learn (most impactful)
     priority_skills = []
     for skill_data in top_missing[:10]:
         skill = skill_data["skill"]
         freq = skill_data["frequency"]
 
-        # Calculate impact (how many jobs would become more accessible)
-        jobs_unlocked = len([j for j in job_matches if skill in j["missing_skills"] and j["match_percentage"] >= 60])
+        jobs_unlocked = len([
+            j for j in job_matches
+            if skill in j["missing_skills"] and j["predicted_fit_score"] >= 60
+        ])
 
         priority_skills.append({
             "skill": skill,
@@ -1044,14 +1045,12 @@ def predict_career_opportunities(gap_analysis: Dict, student_profile: Dict) -> D
 
     priority_skills.sort(key=lambda x: (x["impact_score"], x["frequency"]), reverse=True)
 
-    # Learning path recommendation
     learning_path = {
         "immediate_focus": [s for s in priority_skills if s["priority"] == "High"][:5],
         "next_steps": [s for s in priority_skills if s["priority"] == "Medium"][:5],
         "long_term": [s for s in priority_skills if s["priority"] == "Low"][:5]
     }
 
-    # Career growth timeline
     timeline = {
         "0-3_months": {
             "focus": "Apply to immediate opportunities while learning 2-3 high-priority skills",
@@ -1081,22 +1080,23 @@ def predict_career_opportunities(gap_analysis: Dict, student_profile: Dict) -> D
 
     return prediction
 
+
 def generate_recommendations(gap_analysis: Dict, student_profile: Dict) -> List[str]:
     """Generate personalized career recommendations"""
     recommendations = []
 
-    avg_match = gap_analysis["readiness_summary"]["average_match"]
+    avg_match = gap_analysis["readiness_summary"].get("average_predicted_fit_score", 0)
     highly_qualified = gap_analysis["readiness_summary"]["highly_qualified"]
 
     if avg_match >= 65:
-        recommendations.append("You're well-positioned for many software engineer roles! Focus on applying to jobs with 70%+ match.")
+        recommendations.append("You're well-positioned for many software engineer roles. Focus on applying to jobs with high predicted fit scores.")
     elif avg_match >= 50:
         recommendations.append("You have a solid foundation. Learning 3-5 key skills will significantly improve your opportunities.")
     else:
         recommendations.append("Focus on building foundational skills. Consider internships or entry-level positions to gain experience.")
 
     if highly_qualified > 0:
-        recommendations.append(f"You qualify for {highly_qualified} positions right now. Start applying!")
+        recommendations.append(f"You qualify for {highly_qualified} positions right now. Start applying.")
 
     top_missing = gap_analysis["top_missing_skills"][:3]
     if top_missing:
@@ -1104,20 +1104,17 @@ def generate_recommendations(gap_analysis: Dict, student_profile: Dict) -> List[
         recommendations.append(f"Priority skills to learn: {skills_str}")
 
     if student_profile.get("experience"):
-        recommendations.append("Highlight your internship experience in applications.")
+        recommendations.append("Highlight your internship or practical experience clearly in applications.")
     else:
         recommendations.append("Consider internships or freelance projects to gain practical experience.")
 
     return recommendations
 
+
 print("Prediction functions loaded\n")
 
 
-# In[11]:
-
-
-# ----------------------- Generate Reports
-
+# ----------------------- GENERATE REPORTS
 def generate_reports(
     gap_analysis: Dict,
     predictions: Dict,
@@ -1129,7 +1126,6 @@ def generate_reports(
 
     print("GENERATING REPORTS")
 
-    # Save detailed JSON report
     full_report = {
         "gap_analysis": gap_analysis,
         "career_predictions": predictions,
@@ -1148,54 +1144,53 @@ def generate_reports(
         if remote:
             report_url = _upload_json_to_storage(full_report, remote)
 
-    # Generate human-readable text report
     text_report = []
-    text_report.append("="*50)
+    text_report.append("=" * 50)
     text_report.append("AI-BASED CAREER GROWTH SYSTEM - ANALYSIS REPORT")
-    text_report.append("="*50)
+    text_report.append("=" * 50)
     text_report.append(f"\nGenerated: {time.strftime('%Y-%m-%d %H:%M:%S')}")
     text_report.append(f"Student: {gap_analysis['student_name']}\n")
 
-    # Summary
-    text_report.append("\n" + "-"*50)
+    text_report.append("\n" + "-" * 50)
     text_report.append("EXECUTIVE SUMMARY")
-    text_report.append("-"*50)
+    text_report.append("-" * 50)
     summary = gap_analysis["readiness_summary"]
     text_report.append(f"Total Jobs Analyzed: {gap_analysis['total_jobs_analyzed']}")
-    text_report.append(f"Average Match Score: {summary['average_match']}%")
+    text_report.append(f"Average Rule-Based Match Score: {summary['average_match']}%")
+    text_report.append(f"Average ML Fit Score: {summary.get('average_predicted_fit_score', 0)}%")
     text_report.append(f"Highly Qualified Jobs: {summary['highly_qualified']}")
     text_report.append(f"Moderately Qualified Jobs: {summary['moderately_qualified']}")
     text_report.append(f"Needs Improvement Jobs: {summary['needs_improvement']}")
 
-    # Top Opportunities
-    text_report.append("\n" + "-"*50)
+    text_report.append("\n" + "-" * 50)
     text_report.append("TOP 10 MATCHING OPPORTUNITIES")
-    text_report.append("-"*50)
+    text_report.append("-" * 50)
     for i, job in enumerate(gap_analysis["job_matches"][:10], 1):
         text_report.append(f"\n{i}. {job['position']} at {job['employer']}")
-        text_report.append(f"   Match: {job['match_percentage']}% | Ref: {job['ref']}")
+        text_report.append(
+            f"   Rule Match: {job['match_percentage']}% | ML Fit Score: {job.get('predicted_fit_score', 0)}% | Ref: {job['ref']}"
+        )
         text_report.append(f"   Matched Skills: {', '.join(job['matched_skills'][:5])}")
         if job['missing_skills']:
             text_report.append(f"   Missing Skills: {', '.join(job['missing_skills'][:5])}")
 
-    # Skill Gaps
-    text_report.append("\n" + "-"*50)
+    text_report.append("\n" + "-" * 50)
     text_report.append("TOP 15 SKILL GAPS")
-    text_report.append("-"*50)
+    text_report.append("-" * 50)
     for i, skill_data in enumerate(gap_analysis["top_missing_skills"], 1):
         text_report.append(f"{i:2d}. {skill_data['skill'].title():30s} (Required in {skill_data['frequency']} jobs)")
 
-    # Priority Skills
-    text_report.append("\n" + "-"*50)
+    text_report.append("\n" + "-" * 50)
     text_report.append("PRIORITY SKILLS TO LEARN")
-    text_report.append("-"*50)
+    text_report.append("-" * 50)
     for i, skill in enumerate(predictions["priority_skills"][:10], 1):
-        text_report.append(f"{i:2d}. {skill['skill'].title():30s} Priority: {skill['priority']:6s} | Impact: {skill['impact_score']} jobs")
+        text_report.append(
+            f"{i:2d}. {skill['skill'].title():30s} Priority: {skill['priority']:6s} | Impact: {skill['impact_score']} jobs"
+        )
 
-    # Learning Path
-    text_report.append("\n" + "-"*50)
+    text_report.append("\n" + "-" * 50)
     text_report.append("RECOMMENDED LEARNING PATH")
-    text_report.append("-"*50)
+    text_report.append("-" * 50)
     text_report.append("\nImmediate Focus (0-3 months):")
     for skill in predictions["learning_path"]["immediate_focus"]:
         text_report.append(f"  - {skill['skill'].title()}")
@@ -1208,26 +1203,23 @@ def generate_reports(
     for skill in predictions["learning_path"]["long_term"]:
         text_report.append(f"  - {skill['skill'].title()}")
 
-    # Career Timeline
-    text_report.append("\n" + "-"*50)
+    text_report.append("\n" + "-" * 50)
     text_report.append("CAREER GROWTH TIMELINE")
-    text_report.append("-"*50)
+    text_report.append("-" * 50)
     for period, data in predictions["career_timeline"].items():
         text_report.append(f"\n{period.replace('_', '-').upper()}:")
         text_report.append(f"  Focus: {data['focus']}")
         text_report.append(f"  Opportunities: {data['opportunities']} jobs")
         text_report.append(f"  Skills: {', '.join(data['recommended_skills'])}")
 
-    # Recommendations
-    text_report.append("\n" + "-"*50)
+    text_report.append("\n" + "-" * 50)
     text_report.append("PERSONALIZED RECOMMENDATIONS")
-    text_report.append("-"*50)
+    text_report.append("-" * 50)
     for rec in predictions["recommendations"]:
         text_report.append(f"\n{rec}")
 
-    text_report.append("\n" + "="*50)
+    text_report.append("\n" + "=" * 50)
 
-    # Save text report
     text_report_path = None
     text_report_url = None
     if write_local:
@@ -1247,14 +1239,11 @@ def generate_reports(
         "text_report_url": text_report_url,
     }
 
+
 print("Report generation functions loaded\n")
 
 
-# In[12]:
-
-
-# ---------------- Main Execution Pipeline
-
+# ---------------- MAIN EXECUTION PIPELINE
 def run_analysis(
     keyword: str,
     student_profile: Dict,
@@ -1268,13 +1257,12 @@ def run_analysis(
 
     start_time = time.time()
 
-    # Step 1: Scrape job ads
     print("STEP 1: Scraping job advertisements...")
     print("-" * 50)
     metadata = scrape_topjobs(keyword, output_folder, write_local=write_local, storage_prefix=storage_prefix)
 
     if not metadata:
-        print(" No jobs found. Exiting.")
+        print("No jobs found. Exiting.")
         return {
             "metadata": [],
             "analyzed_jobs": [],
@@ -1289,14 +1277,13 @@ def run_analysis(
         metadata_path = os.path.join(output_folder, "scraped_jobs.json")
         with open(metadata_path, "w", encoding="utf-8") as f:
             json.dump(metadata, f, indent=2, ensure_ascii=False)
-        print(f"\n Scraped {len(metadata)} jobs")
+        print(f"\nScraped {len(metadata)} jobs")
     else:
         remote = _analysis_path(storage_prefix, "scraped_jobs.json")
         if remote:
             storage_files["scraped_jobs.json"] = _upload_json_to_storage(metadata, remote)
-        print(f"\n Scraped {len(metadata)} jobs")
+        print(f"\nScraped {len(metadata)} jobs")
 
-    # Step 2: Analyze job requirements
     analyzed_jobs = analyze_job_requirements(
         metadata,
         output_folder,
@@ -1315,10 +1302,7 @@ def run_analysis(
             storage_files["analyzed_jobs.json"] = _upload_json_to_storage(analyzed_jobs, remote)
         print("Analysis complete. Results uploaded to storage.")
 
-    # Step 3: Perform skill gap analysis
     gap_analysis = perform_skill_gap_analysis(student_profile, analyzed_jobs)
-
-    # Step 4: Predict career opportunities
     predictions = predict_career_opportunities(gap_analysis, student_profile)
 
     reports = None
@@ -1332,7 +1316,7 @@ def run_analysis(
         )
 
     elapsed = time.time() - start_time
-    print(f"\n Analysis complete in {elapsed:.2f} seconds!")
+    print(f"\nAnalysis complete in {elapsed:.2f} seconds!")
 
     return {
         "metadata": metadata,
@@ -1360,7 +1344,7 @@ def run_analysis_from_metadata(
 
     start_time = time.time()
     if not metadata:
-        print(" No cached jobs found. Exiting.")
+        print("No cached jobs found. Exiting.")
         return {
             "metadata": [],
             "analyzed_jobs": [],
@@ -1376,12 +1360,12 @@ def run_analysis_from_metadata(
         metadata_path = os.path.join(output_folder, "scraped_jobs.json")
         with open(metadata_path, "w", encoding="utf-8") as f:
             json.dump(metadata, f, indent=2, ensure_ascii=False)
-        print(f"\n Using cached metadata ({len(metadata)} jobs)")
+        print(f"\nUsing cached metadata ({len(metadata)} jobs)")
     else:
         remote = _analysis_path(storage_prefix, "scraped_jobs.json")
         if remote:
             storage_files["scraped_jobs.json"] = _upload_json_to_storage(metadata, remote)
-        print(f"\n Using cached metadata ({len(metadata)} jobs)")
+        print(f"\nUsing cached metadata ({len(metadata)} jobs)")
 
     analyzed_jobs = analyze_job_requirements(
         metadata,
@@ -1415,7 +1399,7 @@ def run_analysis_from_metadata(
         )
 
     elapsed = time.time() - start_time
-    print(f"\n Analysis complete in {elapsed:.2f} seconds!")
+    print(f"\nAnalysis complete in {elapsed:.2f} seconds!")
 
     return {
         "metadata": metadata,
@@ -1434,10 +1418,8 @@ def main() -> Dict:
     """Main execution pipeline for CLI usage."""
     return run_analysis(KEYWORD, STUDENT_PROFILE, OUTPUT_FOLDER, generate_reports_flag=True)
 
+
 print("Main pipeline loaded\n")
-
-
-# In[13]:
 
 
 if __name__ == "__main__":

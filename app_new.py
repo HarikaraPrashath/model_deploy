@@ -44,7 +44,6 @@ from service.career_market.trends_service import (
     seed_trends_service,
 )
 from service.career_market.analysis_service import analyse_service
-from service.personality_career.interview_analysis_service import analyze_interview_service
 from service.career_market.root_health_service import health_service
 from service.career_market.ranked_service import (
     get_ranked_service,
@@ -187,11 +186,6 @@ def get_ranked_summary_endpoint() -> JSONResponse:
 @app.post("/analyse")
 async def analyse_endpoint(request: Request, payload: dict[str, Any] | None = None) -> JSONResponse:
     return await analyse_service(request, payload)
-
-@app.post("/api/analyze")
-async def analyze_interview_endpoint(payload: dict[str, Any]) -> JSONResponse:
-    """Analyze interview emotions and predict career based on emotional patterns."""
-    return analyze_interview_service(payload)
 
 
 # sample questions route pulls from shared constants so it matches

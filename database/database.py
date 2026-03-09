@@ -34,6 +34,10 @@ else:
     ssl_context.check_hostname = False
     ssl_context.verify_mode = ssl.CERT_NONE
 
+    # asyncpg can cache prepared statements which conflicts with pgbouncer
+    # in transaction/statement pooling modes.  To avoid the
+    # DuplicatePreparedStatementError we set statement_cache_size to 0.  This
+    # is safe even when pgbouncer isn't used.
     engine = create_async_engine(
         DATABASE_URL,
         echo=False,
@@ -45,6 +49,7 @@ else:
             "timeout": 30,
             "command_timeout": 30,
             "ssl": ssl_context,
+            "statement_cache_size": 0,  # <- disable prepared stmt cache
             "server_settings": {
                 "application_name": "fastapi_app"
             }

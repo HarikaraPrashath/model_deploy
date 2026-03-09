@@ -45,7 +45,10 @@ rapidfuzz
 selenium
 webdriver-manager
 beautifulsoup4
-requests
+# pin requests and related libraries to avoid version warning from chardet/charset_normalizer
+requests>=2.31,<3
+charset_normalizer<4
+chardet<5,>=3.0.2
 nltk
 
 # Validation
