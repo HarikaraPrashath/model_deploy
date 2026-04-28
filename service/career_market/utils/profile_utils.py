@@ -36,6 +36,10 @@ def _default_profile() -> dict[str, Any]:
         "projects": [],
         "certifications": [],
         "recommendations": [],
+        "careerGuide": {},
+        "careerPrep": {},
+        "careerMarket": {},
+        "careerEmotion": {},
     }
 
 
@@ -131,11 +135,13 @@ def _coerce_profile(payload: dict[str, Any]) -> dict[str, Any]:
         }
     )
 
-    for key in ["about", "experiences", "educationItems", "skills", "projects", "certifications", "recommendations"]:
-        value = payload.get(key, base[key])
-        if isinstance(base[key], list):
+    for key in ["about", "experiences", "educationItems", "skills", "projects", "certifications", "recommendations", "careerGuide", "careerPrep", "careerMarket", "careerEmotion"]:
+        value = payload.get(key, base.get(key, [] if key in ["experiences", "educationItems", "skills", "projects", "certifications", "recommendations"] else {} if key in ["careerGuide", "careerPrep", "careerMarket", "careerEmotion"] else ""))
+        if key in ["careerGuide", "careerPrep", "careerMarket", "careerEmotion"]:
+            base[key] = value if isinstance(value, dict) else {}
+        elif isinstance(base.get(key), list):
             base[key] = value if isinstance(value, list) else []
-        elif isinstance(base[key], str):
+        elif isinstance(base.get(key), str):
             base[key] = value if isinstance(value, str) else ""
 
     return base

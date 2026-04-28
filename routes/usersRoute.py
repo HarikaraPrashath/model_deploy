@@ -104,7 +104,10 @@ async def register_user(
                 "name": new_user.name,
                 "email": new_user.email
             },
-            "token": jwt_token
+            # `token` is the DB-stored bearer token used by career-market endpoints
+            "token": new_user.token,
+            # `jwt` remains available for session/cookie based flows
+            "jwt": jwt_token,
         }
     except HTTPException as e:
         print(f"❌ Register error: {e.detail}")
@@ -163,7 +166,10 @@ async def login_user(
             "name": user.name,
             "email": user.email
         },
-        "token": jwt_token
+        # expose the DB bearer token so front-end can call career-market endpoints
+        "token": user.token,
+        # also return the session JWT
+        "jwt": jwt_token,
     }
 
 

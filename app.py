@@ -63,8 +63,13 @@ from service.career_market.utils.config import (
 async def lifespan(app: FastAPI):
     # Startup
     try:
+        # Create tables for the main schema and for the library models
+        from lib.database.models import Base as LibBase
+
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+            # ensure tables declared in lib/database/models.py are created too
+            await conn.run_sync(LibBase.metadata.create_all)
         print("✅ Database tables created successfully")
     except Exception as e:
         print(f"⚠️  Failed to create database tables: {str(e)}")
@@ -78,7 +83,7 @@ async def lifespan(app: FastAPI):
 
 
 #this is Prevent the CORS issues
-app = FastAPI(title="Career Prediction")
+app = FastAPI(title="Career Prediction", lifespan=lifespan)
 
 # only allow the front-end host (or list of hosts) when cookies/credentials are used
 # Wildcard (*) is not permitted when credentials=True.  Pull from env or default to localhost:3000.
@@ -86,7 +91,12 @@ frontend_origins = os.getenv("FRONTEND_ORIGINS")
 if frontend_origins:
     origins_list = [o.strip() for o in frontend_origins.split(",") if o.strip()]
 else:
-    origins_list = ["http://localhost:3000"]
+    # Allow both localhost and 127.0.0.1 (and IPv6 loopback) during development
+    origins_list = [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://[::1]:3000",
+    ]
 
 app.add_middleware(
     CORSMiddleware,
