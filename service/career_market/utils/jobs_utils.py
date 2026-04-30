@@ -7,12 +7,13 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import select, text as sql_text
+from sqlalchemy import or_, select, text as sql_text
 
 from lib.database.db import SessionLocal
 from lib.database.models import JobMetadata, LastQuery, RankedJob
 from service.career_market.utils.config import CV_EXTRACTOR_DIR, SCR_OUTPUT_DIR
 from service.career_market.utils.io_utils import _read_json
+from service.career_market.utils.role_match_utils import infer_role_tags
 from service.career_market.utils.storage_utils import _download_job_json, _storage_enabled, _upload_to_storage
 
 
@@ -77,6 +78,7 @@ def _cleanup_scr_output_dir() -> None:
 def _sync_jobs_from_files(
     metadata: list[dict[str, Any]] | None = None,
     ranked: list[dict[str, Any]] | None = None,
+    source_keyword: str = "",
 ) -> None:
     if metadata is None or ranked is None:
         payload = _load_jobs_payload()
@@ -86,10 +88,26 @@ def _sync_jobs_from_files(
     if not isinstance(metadata, list) or not isinstance(ranked, list):
         return
 
+    ranked_by_ref: dict[str, dict[str, Any]] = {}
+    ranked_by_url: dict[str, dict[str, Any]] = {}
+    ranked_by_identity: dict[tuple[str, str], dict[str, Any]] = {}
+    for item in ranked:
+        if not isinstance(item, dict):
+            continue
+        ref = str(item.get("ref") or "").strip()
+        url = str(item.get("url") or "").strip()
+        position = str(item.get("position") or "").strip().lower()
+        employer = str(item.get("employer") or "").strip().lower()
+        if ref:
+            ranked_by_ref[ref] = item
+        if url:
+            ranked_by_url[url] = item
+        if position or employer:
+            ranked_by_identity[(position, employer)] = item
+
     now = datetime.now(tz=timezone.utc)
     with SessionLocal() as db:
         db.execute(sql_text("SET LOCAL statement_timeout = '300s'"))
-        db.execute(sql_text("TRUNCATE TABLE job_metadata"))
         db.execute(sql_text("TRUNCATE TABLE ranked_jobs"))
         db.commit()
 
@@ -120,20 +138,76 @@ def _sync_jobs_from_files(
                     snippet = text[:300] + ("..." if len(text) > 300 else "")
                 except Exception:
                     snippet = ""
+                    text = ""
+            else:
+                text = str(job.get("raw_text") or "").strip()
 
-            db.add(
-                JobMetadata(
-                    ref=job.get("ref"),
-                    position=job.get("position"),
-                    employer=job.get("employer"),
-                    url=job.get("url"),
-                    ad_type=job.get("type"),
-                    files=files,
-                    text_snippet=snippet,
-                    image_file=image_url or image_file,
-                    created_at=now,
-                )
+            ref = str(job.get("ref") or "").strip()
+            url = str(job.get("url") or "").strip()
+            position = str(job.get("position") or "").strip()
+            employer = str(job.get("employer") or "").strip()
+            ranked_job = (
+                ranked_by_ref.get(ref)
+                or ranked_by_url.get(url)
+                or ranked_by_identity.get((position.lower(), employer.lower()))
+                or {}
             )
+
+            text_full = str(ranked_job.get("text_full") or text or "").strip()
+            if not snippet and text_full:
+                snippet = text_full[:300] + ("..." if len(text_full) > 300 else "")
+            skills_found = ranked_job.get("skills_found", []) or []
+            must_have_skills = ranked_job.get("must_have_skills", []) or []
+            nice_to_have_skills = ranked_job.get("nice_to_have_skills", []) or []
+            core_skills = ranked_job.get("core_skills", []) or []
+            source_label = str(job.get("source_label") or "").strip()
+            role_tags = infer_role_tags(
+                position,
+                text_full or snippet,
+                source_keyword if not source_label else "",
+            )
+
+            existing = None
+            if url:
+                existing = db.execute(select(JobMetadata).where(JobMetadata.url == url)).scalar_one_or_none()
+            if existing is None and ref:
+                existing = db.execute(
+                    select(JobMetadata).where(
+                        or_(JobMetadata.ref == ref, JobMetadata.ref == f"legacy:{ref}")
+                    )
+                ).scalar_one_or_none()
+
+            payload = {
+                "ref": ref or job.get("ref"),
+                "position": position or job.get("position"),
+                "employer": employer or job.get("employer"),
+                "url": url or job.get("url"),
+                "ad_type": job.get("type"),
+                "files": files,
+                "text_snippet": snippet,
+                "text_full": text_full or None,
+                "skills_found": skills_found,
+                "must_have_skills": must_have_skills,
+                "nice_to_have_skills": nice_to_have_skills,
+                "core_skills": core_skills,
+                "role_tags": role_tags,
+                "source_keyword": source_label or source_keyword or None,
+                "scraped_at": now,
+                "extraction_metadata": {
+                    "skills_found": len(skills_found),
+                    "must_have_skills": len(must_have_skills),
+                    "nice_to_have_skills": len(nice_to_have_skills),
+                    "core_skills": len(core_skills),
+                },
+                "image_file": image_url or image_file,
+                "created_at": existing.created_at if existing else now,
+            }
+
+            if existing:
+                for field, value in payload.items():
+                    setattr(existing, field, value)
+            else:
+                db.add(JobMetadata(**payload))
             batch += 1
             if batch % 25 == 0:
                 db.commit()
@@ -193,8 +267,7 @@ def _sync_jobs_from_files(
 def _has_jobs_in_db() -> bool:
     with SessionLocal() as db:
         meta_row = db.execute(select(JobMetadata.id)).scalars().first()
-        ranked_row = db.execute(select(RankedJob.id)).scalars().first()
-    return bool(meta_row and ranked_row)
+    return bool(meta_row)
 
 
 def _ensure_jobs_cached() -> bool:
@@ -213,20 +286,16 @@ def _should_refresh(keyword: str, force: bool) -> bool:
         return True
     if not _ensure_jobs_cached():
         return True
-    last_keyword = ""
     last_run = datetime.fromtimestamp(0, tz=timezone.utc)
     with SessionLocal() as db:
         row = db.execute(select(LastQuery).where(LastQuery.id == 1)).scalar_one_or_none()
         if row:
-            last_keyword = str(row.keyword or "").strip().lower()
             if isinstance(row.ran_at, datetime):
                 last_run = row.ran_at
                 if last_run.tzinfo is None:
                     last_run = last_run.replace(tzinfo=timezone.utc)
 
     age = datetime.now(tz=timezone.utc) - last_run
-    if last_keyword != keyword.strip().lower():
-        return True
-    if age > timedelta(hours=3):
+    if age > timedelta(hours=12):
         return True
     return False

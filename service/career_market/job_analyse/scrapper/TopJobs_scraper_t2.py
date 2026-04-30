@@ -83,6 +83,7 @@ import json
 #   TOPJOBS_KEYWORD="data engineer" python TopJobs_scraper_t2.py
 #   python TopJobs_scraper_t2.py "frontend developer"
 KEYWORD = os.environ.get("TOPJOBS_KEYWORD", "software engineer")
+SCRAPE_MODE = os.environ.get("TOPJOBS_SCRAPE_MODE", "keyword").strip().lower()
 if len(sys.argv) > 1:
     cli_kw = " ".join(sys.argv[1:]).strip()
     if cli_kw:
@@ -92,8 +93,52 @@ SCR_OUTPUT_ROOT = os.path.join(BASE_DIR, "scr_output")
 OUTPUT_FOLDER = os.path.join(SCR_OUTPUT_ROOT, "topjobs_ads")
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
+IT_FUNCTIONAL_AREAS = {
+    "IT-Sware/DB/QA/Web/Graphics/GIS": "https://www.topjobs.lk/applicant/vacancybyfunctionalarea.jsp?FA=SDQ&jst=OPEN",
+    "IT-HWare/Networks/Systems": "https://www.topjobs.lk/applicant/vacancybyfunctionalarea.jsp?FA=HNS&jst=OPEN",
+    "IT-Telecoms": "https://www.topjobs.lk/applicant/vacancybyfunctionalarea.jsp?FA=ITT&jst=OPEN",
+}
+
 def clean_name(s):
     return re.sub(r'[^\w\- ]', '_', s.strip())[:100]
+
+
+def parse_job_rows(soup, source_label):
+    rows = soup.select("table#table tbody tr[onclick*='createAlert']")
+    jobs = []
+    for row in rows:
+        onclick = row.get("onclick", "")
+        m = re.search(r"createAlert\('(\d+)','([^']+)','([^']+)','([^']+)','([^']+)'\)", onclick)
+        if not m:
+            continue
+        rid, ac, jc, ec, _ = m.groups()
+        pos = row.find("h2").get_text(strip=True) if row.find("h2") else "N/A"
+        emp = row.find("h1").get_text(strip=True) if row.find("h1") else "N/A"
+        cells = row.find_all("td")
+        ref = cells[1].get_text(strip=True) if len(cells) > 1 else rid
+        url = f"https://www.topjobs.lk/employer/JobAdvertismentServlet?rid={rid}&ac={ac}&jc={jc}&ec={ec}&pg=applicant/vacancybyfunctionalarea.jsp"
+        jobs.append(
+            {
+                "ref": ref,
+                "pos": pos,
+                "emp": emp,
+                "url": url,
+                "source_label": source_label,
+            }
+        )
+    return jobs
+
+
+def dedupe_jobs(jobs):
+    seen = set()
+    unique = []
+    for job in jobs:
+        key = (job.get("ref"), job.get("url"))
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(job)
+    return unique
 
 def find_chrome_binary():
     env_paths = [
@@ -132,43 +177,48 @@ except (SessionNotCreatedException, WebDriverException) as e:
 
 wait = WebDriverWait(driver, 20)
 
-print(f"Searching for: {KEYWORD.upper()}\n")
-driver.get("https://www.topjobs.lk/index.jsp")
-time.sleep(2)
-
-# Perform search
-driver.find_element(By.ID, "txtKeyWord").clear()
-driver.find_element(By.ID, "txtKeyWord").send_keys(KEYWORD)
-driver.find_element(By.ID, "btnSearch").click()
-
-try:
-    wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "table#table")))
-    print("Results page loaded")
-except:
-    print("No results or site changed")
-    driver.quit()
-    raise
-
-time.sleep(2)
-soup = BeautifulSoup(driver.page_source, "html.parser")
-rows = soup.select("table#table tbody tr[onclick*='createAlert']")
-print(f"Found {len(rows)} job ads\n")
-
 jobs = []
-for i, row in enumerate(rows, 1):
-    onclick = row.get("onclick", "")
-    m = re.search(r"createAlert\('(\d+)','([^']+)','([^']+)','([^']+)','([^']+)'\)", onclick)
-    if not m: continue
-    rid, ac, jc, ec, _ = m.groups()
+if SCRAPE_MODE == "it_pool":
+    print("Collecting IT job pool from TopJobs functional areas\n")
+    for label, category_url in IT_FUNCTIONAL_AREAS.items():
+        print(f"Category: {label}")
+        driver.get(category_url)
+        time.sleep(2)
+        try:
+            wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "table#table")))
+        except Exception:
+            print(f"  ! Could not load listing table for {label}")
+            continue
+        soup = BeautifulSoup(driver.page_source, "html.parser")
+        category_jobs = parse_job_rows(soup, label)
+        print(f"  Found {len(category_jobs)} job ads")
+        jobs.extend(category_jobs)
+else:
+    print(f"Searching for: {KEYWORD.upper()}\n")
+    driver.get("https://www.topjobs.lk/index.jsp")
+    time.sleep(2)
 
-    pos = row.find("h2").get_text(strip=True) if row.find("h2") else "N/A"
-    emp = row.find("h1").get_text(strip=True) if row.find("h1") else "N/A"
-    ref = row.find_all("td")[1].get_text(strip=True)
+    # Perform search
+    driver.find_element(By.ID, "txtKeyWord").clear()
+    driver.find_element(By.ID, "txtKeyWord").send_keys(KEYWORD)
+    driver.find_element(By.ID, "btnSearch").click()
 
-    url = f"https://www.topjobs.lk/employer/JobAdvertismentServlet?rid={rid}&ac={ac}&jc={jc}&ec={ec}&pg=applicant/vacancybyfunctionalarea.jsp"
+    try:
+        wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "table#table")))
+        print("Results page loaded")
+    except Exception:
+        print("No results or site changed")
+        driver.quit()
+        raise
 
-    jobs.append({"ref": ref, "pos": pos, "emp": emp, "url": url})
-    print(f"{i:2d}. [{ref}] {pos} - {emp}")
+    time.sleep(2)
+    soup = BeautifulSoup(driver.page_source, "html.parser")
+    jobs = parse_job_rows(soup, KEYWORD)
+
+jobs = dedupe_jobs(jobs)
+print(f"\nFound {len(jobs)} unique job ads\n")
+for i, job in enumerate(jobs, 1):
+    print(f"{i:2d}. [{job['ref']}] {job['pos']} - {job['emp']}")
 
 # --- Download ads ---
 metadata = []
@@ -182,6 +232,7 @@ for idx, job in enumerate(jobs, 1):
         "position": job["pos"],
         "employer": job["emp"],
         "url": job["url"],
+        "source_label": job.get("source_label"),
         "type": None,
         "files": []
     }

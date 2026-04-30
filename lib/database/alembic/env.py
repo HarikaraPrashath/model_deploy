@@ -16,7 +16,7 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-BASE_DIR = Path(__file__).resolve().parents[2]
+BASE_DIR = Path(__file__).resolve().parents[3]
 ENV_PATH = BASE_DIR / ".env"
 load_dotenv(dotenv_path=ENV_PATH, override=False)
 
@@ -32,7 +32,7 @@ def _normalize_db_url(url: str) -> str:
 
 db_url = _normalize_db_url(os.environ.get("DATABASE_URL", "").strip())
 if not db_url:
-    raise RuntimeError("DATABASE_URL is not set. Add it to RP-Server/.env")
+    raise RuntimeError("DATABASE_URL is not set. Add it to model_deploy/.env")
 
 config.set_main_option("sqlalchemy.url", db_url.replace("%", "%%"))
 

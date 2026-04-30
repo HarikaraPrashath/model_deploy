@@ -23,14 +23,36 @@ from service.career_market.utils.jobs_utils import (
     _sync_jobs_from_files,
 )
 from service.career_market.utils.profile_utils import _load_profile_for_email
+from service.career_market.utils.role_match_utils import role_matches
 from service.career_market.utils.storage_utils import _upload_job_json
 from service.career_market.utils.trends_utils import _record_trend_snapshot
 
+try:
+    from service.career_market.job_analyse.job_skill_pipeline import (
+        JobParsed,
+        find_signals,
+        find_skills,
+        infer_skill_priority,
+        normalize_skill_list,
+        split_sections,
+    )
+except Exception:
+    JobParsed = None
+    find_signals = None
+    find_skills = None
+    infer_skill_priority = None
+    normalize_skill_list = None
+    split_sections = None
 
-def get_jobs_service() -> JSONResponse:
+
+def get_jobs_service(role: str | None = None, limit: int | None = None) -> JSONResponse:
     print("[jobs] fetch metadata")
     with SessionLocal() as db:
         rows = db.execute(select(JobMetadata).order_by(JobMetadata.created_at.desc())).scalars().all()
+    if role:
+        rows = [row for row in rows if role_matches(row.role_tags or [], role)]
+    if limit and limit > 0:
+        rows = rows[:limit]
     jobs = [
         {
             "ref": row.ref or "",
@@ -40,6 +62,9 @@ def get_jobs_service() -> JSONResponse:
             "type": row.ad_type,
             "files": row.files or [],
             "textSnippet": row.text_snippet or "",
+            "textFull": row.text_full or "",
+            "skillsFound": row.skills_found or [],
+            "roleTags": row.role_tags or [],
             "imageFile": row.image_file,
         }
         for row in rows
@@ -55,6 +80,89 @@ def get_job_file_service(name: str) -> FileResponse:
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="File not found.")
     return FileResponse(file_path)
+
+
+def reindex_jobs_service(request: Request, payload: dict[str, Any] | None = None) -> JSONResponse:
+    user = _require_user(request)
+    _ = user
+    payload = payload or {}
+    role = str(payload.get("role") or "").strip() or None
+    only_missing = bool(payload.get("onlyMissing", True))
+    limit_value = payload.get("limit", 250)
+
+    if not (find_skills and normalize_skill_list and split_sections and infer_skill_priority and JobParsed):
+        raise HTTPException(status_code=500, detail="Job reindex pipeline is unavailable.")
+
+    try:
+        limit = max(1, min(int(limit_value), 1000))
+    except (TypeError, ValueError):
+        limit = 250
+
+    updated = 0
+    skipped = 0
+    with SessionLocal() as db:
+        rows = db.execute(select(JobMetadata).order_by(JobMetadata.created_at.desc())).scalars().all()
+        if role:
+            rows = [row for row in rows if role_matches(row.role_tags or [], role)]
+        if limit:
+            rows = rows[:limit]
+
+        for row in rows:
+            current_count = len(row.skills_found or [])
+            if only_missing and current_count >= 4 and row.core_skills:
+                skipped += 1
+                continue
+
+            text = str(row.text_full or row.text_snippet or "")
+            match_text = " ".join([text, str(row.position or ""), str(row.employer or "")]).strip()
+            if not match_text:
+                skipped += 1
+                continue
+
+            sections = split_sections(match_text)
+            skills = normalize_skill_list(find_skills(match_text))
+            signals = find_signals(match_text) if find_signals else []
+
+            parsed = JobParsed(
+                ref=row.ref or "",
+                position=str(row.position or ""),
+                employer=str(row.employer or ""),
+                url=str(row.url or ""),
+                ad_type=str(row.ad_type or ""),
+                files=list(row.files or []),
+                raw_text=text,
+                sections=sections,
+                skills=skills,
+                signals=signals,
+            )
+            must_have, nice_to_have, core = infer_skill_priority(parsed)
+
+            row.skills_found = skills
+            row.must_have_skills = must_have
+            row.nice_to_have_skills = nice_to_have
+            row.core_skills = core
+            row.extraction_metadata = {
+                **(row.extraction_metadata or {}),
+                "reindexed": True,
+                "skills_found": len(skills),
+                "must_have_skills": len(must_have),
+                "nice_to_have_skills": len(nice_to_have),
+                "core_skills": len(core),
+            }
+            updated += 1
+
+        db.commit()
+
+    return JSONResponse(
+        {
+            "ok": True,
+            "updated": updated,
+            "skipped": skipped,
+            "limit": limit,
+            "onlyMissing": only_missing,
+            "role": role or "",
+        }
+    )
 
 
 def refresh_jobs_service(request: Request, payload: dict[str, Any] | None = None) -> JSONResponse:
@@ -107,6 +215,7 @@ def refresh_jobs_service(request: Request, payload: dict[str, Any] | None = None
             print("[jobs/refresh] running scraper + pipeline")
             env = os.environ.copy()
             env["TOPJOBS_KEYWORD"] = keyword
+            env["TOPJOBS_SCRAPE_MODE"] = "it_pool"
             _python_run([sys.executable, str(SCRAPER_PATH)], env=env)
             _python_run(
                 [
@@ -138,6 +247,7 @@ def refresh_jobs_service(request: Request, payload: dict[str, Any] | None = None
             _sync_jobs_from_files(
                 metadata if isinstance(metadata, list) else None,
                 ranked if isinstance(ranked, list) else None,
+                source_keyword=keyword,
             )
             if isinstance(metadata, list):
                 _upload_job_json("metadata.json", metadata)

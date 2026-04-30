@@ -37,6 +37,7 @@ from service.career_market.jobs_service import (
     get_jobs_service,
     get_job_file_service,
     refresh_jobs_service,
+    reindex_jobs_service,
 )
 from service.career_market.trends_service import (
     get_trend_history_service,
@@ -49,6 +50,7 @@ from service.career_market.root_health_service import health_service
 from service.career_market.ranked_service import (
     get_ranked_service,
     get_ranked_summary_service,
+    search_ranked_service,
 )
 
 from service.career_market.utils.config import (
@@ -163,8 +165,8 @@ async def put_profile_endpoint(payload: dict[str, Any], request: Request) -> JSO
     return put_profile_service(payload, request)
 
 @app.get("/jobs")
-def get_jobs_endpoint() -> JSONResponse:
-    return get_jobs_service()
+def get_jobs_endpoint(role: str | None = None, limit: int | None = None) -> JSONResponse:
+    return get_jobs_service(role=role, limit=limit)
 
 @app.get("/jobs/file")
 def get_job_file_endpoint(name: str) -> FileResponse:
@@ -173,6 +175,11 @@ def get_job_file_endpoint(name: str) -> FileResponse:
 @app.post("/jobs/refresh")
 async def refresh_jobs_endpoint(request: Request, payload: dict[str, Any] | None = None) -> JSONResponse:
     return refresh_jobs_service(request, payload)
+
+
+@app.post("/jobs/reindex")
+async def reindex_jobs_endpoint(request: Request, payload: dict[str, Any] | None = None) -> JSONResponse:
+    return reindex_jobs_service(request, payload)
 
 @app.get("/trends/history")
 def get_trend_history_endpoint() -> JSONResponse:
@@ -193,6 +200,10 @@ def get_ranked_endpoint() -> JSONResponse:
 @app.get("/ranked/summary")
 def get_ranked_summary_endpoint() -> JSONResponse:
     return get_ranked_summary_service()
+
+@app.post("/ranked/search")
+async def search_ranked_endpoint(request: Request, payload: dict[str, Any] | None = None) -> JSONResponse:
+    return search_ranked_service(request, payload)
 
 @app.post("/analyse")
 async def analyse_endpoint(request: Request, payload: dict[str, Any] | None = None) -> JSONResponse:

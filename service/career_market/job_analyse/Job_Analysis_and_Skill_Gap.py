@@ -1051,24 +1051,54 @@ def predict_career_opportunities(gap_analysis: Dict, student_profile: Dict) -> D
         "long_term": [s for s in priority_skills if s["priority"] == "Low"][:5]
     }
 
+    # --- Dynamic Personalization Engine ---
+    def generate_step_tip(step_key, step_data, profile, analysis):
+        skills = profile.get("technical_skills", [])
+        experience = profile.get("experience", [])
+        has_projects = len(profile.get("projects", [])) > 0
+        avg_match = analysis["readiness_summary"]["average_match"]
+        
+        if step_key == "0-3_months":
+            if step_data["opportunities"] > 5:
+                return "The market is reacting very positively to your current profile. Focus on interview techniques and 'culture fit'—you already have the technical edge."
+            if not has_projects:
+                return "You have the skills, but your profile lacks evidence. Build one 'Full-Stack' project this month to prove you can apply what you know."
+            return "You're close! Prioritize the top 2 missing skills in this list to move your 60% matches into the 'Highly Qualified' zone."
+            
+        if step_key == "3-6_months":
+            if len(skills) < 10:
+                return "Don't rush into every framework. Master the fundamentals of your core language first; mid-range roles value deep understanding over a long list of tools."
+            return "This is the 'Specialization' phase. Pick one high-impact skill from this list and become the 'go-to' person for it in your next project."
+            
+        if step_key == "6-12_months":
+            if len(experience) < 2:
+                return "These roles often value architectural knowledge. Even as a junior, start reading about System Design—it will set you apart from other candidates."
+            return "Focus on leadership and architecture. For these long-term targets, demonstrate how you can mentor others or design scalable systems."
+        
+        return "Keep evolving your stack. The most successful developers are the ones who never stop experimenting with new patterns."
+
     # Career growth timeline
     timeline = {
         "0-3_months": {
             "focus": "Apply to immediate opportunities while learning 2-3 high-priority skills",
             "opportunities": len(immediate_opportunities),
-            "recommended_skills": [s["skill"] for s in learning_path["immediate_focus"][:3]]
+            "recommended_skills": [s["skill"] for s in learning_path["immediate_focus"][:3]],
         },
         "3-6_months": {
             "focus": "Expand skill set with medium-priority skills, apply to short-term opportunities",
             "opportunities": len(short_term_opportunities),
-            "recommended_skills": [s["skill"] for s in learning_path["next_steps"][:3]]
+            "recommended_skills": [s["skill"] for s in learning_path["next_steps"][:3]],
         },
         "6-12_months": {
             "focus": "Master advanced skills, qualify for long-term opportunities",
             "opportunities": len(long_term_opportunities),
-            "recommended_skills": [s["skill"] for s in learning_path["long_term"][:3]]
+            "recommended_skills": [s["skill"] for s in learning_path["long_term"][:3]],
         }
     }
+
+    # Inject personalized tips
+    for key in timeline:
+        timeline[key]["mentor_tip"] = generate_step_tip(key, timeline[key], student_profile, gap_analysis)
 
     prediction = {
         "immediate_opportunities": immediate_opportunities[:10],
