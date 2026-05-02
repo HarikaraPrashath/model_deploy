@@ -81,6 +81,13 @@ SKILL_LEXICON: Dict[str, List[str]] = {
     "django": ["django"],
     "flask": ["flask"],
     "fastapi": ["fastapi"],
+    "laravel": ["laravel", "laravel framework", "laravel php"],
+    "lumen": ["lumen", "laravel lumen"],
+    "symfony": ["symfony", "symfony framework"],
+    "codeigniter": ["codeigniter", "code igniter", "ci framework"],
+    "yii": ["yii", "yii2"],
+    "cakephp": ["cakephp", "cake php"],
+    "rails": ["rails", "ruby on rails"],
     "spring framework": ["spring framework", "spring"],
     "spring boot": ["spring boot"],
     "java ee": ["java ee", "j2ee", "jee"],
@@ -184,8 +191,8 @@ SKILL_LEXICON: Dict[str, List[str]] = {
     "rpa": ["rpa", "robotic process automation"],
     "uipath": ["uipath", "ui-path", "ui path"],
     "sap": ["sap"],
-    "salesforce": ["salesforce"],
     "servicenow": ["servicenow"],
+    "salesforce": ["salesforce", "sfdc", "salesforce.com", "apex", "lwc", "soql", "sosl", "lightning web components", "visualforce"],
 }
 
 # Some common "soft requirements" you may want to track (optional)

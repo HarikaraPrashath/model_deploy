@@ -12,6 +12,7 @@ from routes.usersRoute import router
 from database.database import Base, engine
 from typing import Optional
 from pydantic import BaseModel
+from service.personality_career.constants import INTERVIEW_QUESTIONS
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi import FastAPI, File, HTTPException, UploadFile, Request, WebSocket, WebSocketDisconnect
 
@@ -40,6 +41,7 @@ from service.career_market.jobs_service import (
     get_jobs_service,
     get_job_file_service,
     refresh_jobs_service,
+    reindex_jobs_service,
 )
 
 from service.career_market.trends_service import (
@@ -47,13 +49,19 @@ from service.career_market.trends_service import (
     get_trends_service,
     seed_trends_service,
 )
+from service.career_market.all_trends_service import (
+    get_all_trend_history_service,
+    get_all_trends_service,
+)
 
 from service.career_market.analysis_service import analyse_service
+from service.personality_career.interview_analysis_service import analyze_interview_service
 from service.career_market.root_health_service import health_service
 
 from service.career_market.ranked_service import (
     get_ranked_service,
     get_ranked_summary_service,
+    search_ranked_service,
 )
 
 from service.career_market.utils.config import (
@@ -84,8 +92,13 @@ from lib.logger import get_logger
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     try:
+        # Create tables for the main schema and for the library models
+        from lib.database.models import Base as LibBase
+
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+            # ensure tables declared in lib/database/models.py are created too
+            await conn.run_sync(LibBase.metadata.create_all)
         print("✅ Database tables created successfully")
     except Exception as e:
         print(f"⚠️  Failed to create database tables: {str(e)}")
@@ -98,6 +111,25 @@ async def lifespan(app: FastAPI):
 
 # -------------------- FASTAPI APP --------------------
 
+#this is Prevent the CORS issues
+app = FastAPI(title="Career Prediction", lifespan=lifespan)
+
+# only allow the front-end host (or list of hosts) when cookies/credentials are used
+# Wildcard (*) is not permitted when credentials=True.  Pull from env or default to localhost:3000.
+frontend_origins = os.getenv("FRONT_ORIGINS")
+if frontend_origins:
+    origins_list = [o.strip() for o in frontend_origins.split(",") if o.strip()]
+else:
+    # Allow both localhost and 127.0.0.1 (and IPv6 loopback) during development
+    origins_list = [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://[::1]:3000",
+    ]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins_list,
 app = FastAPI(title="Career Prediction")
 
 app.add_middleware(
@@ -177,8 +209,8 @@ async def put_profile_endpoint(payload: dict[str, Any], request: Request) -> JSO
 # -------------------- JOBS --------------------
 
 @app.get("/jobs")
-def get_jobs_endpoint() -> JSONResponse:
-    return get_jobs_service()
+def get_jobs_endpoint(role: str | None = None, limit: int | None = None) -> JSONResponse:
+    return get_jobs_service(role=role, limit=limit)
 
 @app.get("/jobs/file")
 def get_job_file_endpoint(name: str) -> FileResponse:
@@ -188,6 +220,10 @@ def get_job_file_endpoint(name: str) -> FileResponse:
 async def refresh_jobs_endpoint(request: Request, payload: dict[str, Any] | None = None) -> JSONResponse:
     return refresh_jobs_service(request, payload)
 
+
+@app.post("/jobs/reindex")
+async def reindex_jobs_endpoint(request: Request, payload: dict[str, Any] | None = None) -> JSONResponse:
+    return reindex_jobs_service(request, payload)
 # -------------------- TRENDS --------------------
 
 @app.get("/trends/history")
@@ -197,6 +233,14 @@ def get_trend_history_endpoint() -> JSONResponse:
 @app.get("/trends")
 def get_trends_endpoint() -> JSONResponse:
     return get_trends_service()
+
+@app.get("/trends/all/history")
+def get_all_trend_history_endpoint() -> JSONResponse:
+    return get_all_trend_history_service()
+
+@app.get("/trends/all")
+def get_all_trends_endpoint() -> JSONResponse:
+    return get_all_trends_service()
 
 @app.post("/trends/seed")
 async def seed_trends_endpoint(request: Request, payload: dict[str, Any] | None = None) -> JSONResponse:
@@ -212,12 +256,74 @@ def get_ranked_endpoint() -> JSONResponse:
 def get_ranked_summary_endpoint() -> JSONResponse:
     return get_ranked_summary_service()
 
+@app.post("/ranked/search")
+async def search_ranked_endpoint(request: Request, payload: dict[str, Any] | None = None) -> JSONResponse:
+    return search_ranked_service(request, payload)
 # -------------------- ANALYSIS --------------------
 
 @app.post("/analyse")
 async def analyse_endpoint(request: Request, payload: dict[str, Any] | None = None) -> JSONResponse:
     return await analyse_service(request, payload)
 
+@app.post("/api/analyze")
+async def analyze_interview_endpoint(payload: dict[str, Any]) -> JSONResponse:
+    """Analyze interview emotions and predict career based on emotional patterns."""
+    return analyze_interview_service(payload)
+
+
+# sample questions route pulls from shared constants so it matches
+# the rest of the backend's data definitions.
+
+@app.get("/api/questions")
+def get_questions():
+    """Return a list of interview questions stored in constants.
+
+    The frontend relies on this to populate the interview UI.  Keeping the
+    data in a central constants module makes it easier to edit or extend
+    without touching the route code.
+    """
+    # the constant is a list of dicts matching the Question type
+    return {"questions": INTERVIEW_QUESTIONS}
+
+# WebSocket route used by front-end analyze feature
+from fastapi import WebSocket, WebSocketDisconnect
+
+@app.websocket("/ws/analyze")
+async def websocket_analyze(websocket: WebSocket):
+    """Websocket handler for the analyze feature.
+
+    When a client connects we immediately send the current set of
+    questions (mirroring the GET /api/questions route).  Afterwards we echo
+    any text received back to the client.  The client was previously closing
+    the socket quickly because it never received any data and assumed the
+    connection had failed; sending a welcome message/questions gives it
+    something to act on.
+
+    You should adapt the logic below to push live analysis updates instead
+    of the simple echo implementation.
+    """
+    await websocket.accept()
+    print("🔌 WebSocket /ws/analyze accepted")
+
+    # send the initial question list so the frontend can render them
+    # (replace this with a DB call, service call, etc. as needed)
+    try:
+        questions_payload = get_questions()  # returns {'questions': [...]}
+        await websocket.send_json(questions_payload)
+    except Exception as e:
+        print(f"⚠️ failed to send initial questions: {e}")
+
+    try:
+        while True:
+            text = await websocket.receive_text()
+            print("📥 received from client:", text)
+            # echo for now; real code would feed into analyse_service
+            await websocket.send_text(f"received: {text}")
+    except WebSocketDisconnect:
+        print("🛑 WebSocket /ws/analyze disconnected")
+
+# Authentication
+app.include_router(router, prefix="/api/users")
 # -------------------- USER ROUTER --------------------
 
 app.include_router(router, prefix="/api/users")

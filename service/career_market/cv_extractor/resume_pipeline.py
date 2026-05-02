@@ -136,7 +136,11 @@ def render_pdf_to_images(pdf_path: str, dpi: int = 200) -> List[Image.Image]:
 
 def ocr_image(pil_img: Image.Image) -> List[OCRLine]:
     img = np.array(pil_img.convert("RGB"))
-    result = _get_ocr().ocr(img, cls=True)
+    ocr = _get_ocr()
+    try:
+        result = ocr.ocr(img, cls=True)
+    except TypeError:
+        result = ocr.ocr(img)
 
     lines: List[OCRLine] = []
     if not result:
@@ -144,6 +148,14 @@ def ocr_image(pil_img: Image.Image) -> List[OCRLine]:
 
     # PaddleOCR result format: list of blocks, each block has items [box, (text, conf)]
     for block in result:
+        if isinstance(block, dict):
+            texts = block.get("rec_texts") or []
+            scores = block.get("rec_scores") or []
+            for text, conf in zip(texts, scores):
+                text = (text or "").strip()
+                if text:
+                    lines.append(OCRLine(text=text, conf=float(conf or 0.0)))
+            continue
         for item in block:
             text, conf = item[1][0], float(item[1][1])
             text = (text or "").strip()

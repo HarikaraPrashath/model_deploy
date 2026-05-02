@@ -55,7 +55,7 @@ def parse_cv(
     max_file_size: int,
 ) -> dict[str, Any]:
     try:
-        from resume_pipeline import parse_resume  # type: ignore
+        from service.career_market.cv_extractor.resume_pipeline import parse_resume
     except ModuleNotFoundError as exc:
         if exc.name == "paddle":
             raise HTTPException(
@@ -64,7 +64,7 @@ def parse_cv(
             ) from exc
         raise HTTPException(
             status_code=500,
-            detail="Resume parser dependency missing. Check server logs.",
+            detail=f"Resume parser dependency missing: {exc.name}. Check server logs.",
         ) from exc
     except Exception as exc:
         raise HTTPException(

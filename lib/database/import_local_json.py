@@ -277,6 +277,16 @@ def _upsert_ranked(db, ranked: list[dict[str, Any]]) -> None:
                 "matched_nice_to_have": job.get("matched_nice_to_have", []) or [],
                 "weighted_components": job.get("weighted_components", {}) or {},
                 "explanations": job.get("explanations", []) or [],
+                "ocr_text": job.get("ocr_text"),
+                "regex_skills_found": job.get("regex_skills_found", []) or [],
+                "llm_skills_found": job.get("llm_skills_found", []) or [],
+                "llm_must_have_skills": job.get("llm_must_have_skills", []) or [],
+                "llm_nice_to_have_skills": job.get("llm_nice_to_have_skills", []) or [],
+                "extraction_source": job.get("extraction_source"),
+                "extraction_metadata": job.get("extraction_metadata", {}) or {},
+                "vision_skills_found": job.get("vision_skills_found", []) or [],
+                "vision_must_have_skills": job.get("vision_must_have_skills", []) or [],
+                "vision_nice_to_have_skills": job.get("vision_nice_to_have_skills", []) or [],
                 "created_at": datetime.now(tz=timezone.utc),
             }
         )

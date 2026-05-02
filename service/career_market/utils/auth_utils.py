@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import hashlib
+import os
 from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import HTTPException, Request
+from jose import jwt, JWTError
 from sqlalchemy import select
 
 from lib.database.db import SessionLocal
@@ -92,8 +94,14 @@ def _extract_bearer_token(request: Request) -> str | None:
 
 
 def _find_user_by_token(token: str) -> dict[str, Any] | None:
-    with SessionLocal() as db:
-        row = db.execute(select(User).where(User.token == token)).scalar_one_or_none()
+    try:
+        with SessionLocal() as db:
+            row = db.execute(select(User).where(User.token == token)).scalar_one_or_none()
+    except Exception as e:
+        import traceback
+        print("⚠️ Error querying user by token:", str(e))
+        print(traceback.format_exc())
+        raise
     if not row:
         return None
     return {
@@ -106,10 +114,35 @@ def _find_user_by_token(token: str) -> dict[str, Any] | None:
 
 
 def _require_user(request: Request) -> dict[str, Any]:
+    # First try Authorization: Bearer <token>
     token = _extract_bearer_token(request)
-    if not token:
-        raise HTTPException(status_code=401, detail="Missing authorization token.")
-    user = _find_user_by_token(token)
-    if not user:
-        raise HTTPException(status_code=401, detail="Invalid or expired token.")
-    return user
+    if token:
+        user = _find_user_by_token(token)
+        if user:
+            return user
+
+    # Next, try session JWT cookie (set by /api/users routes)
+    jwt_cookie = request.cookies.get("token")
+    if jwt_cookie:
+        secret = os.getenv("SECRET")
+        if not secret:
+            raise HTTPException(status_code=500, detail="Server JWT secret not configured.")
+        try:
+            payload = jwt.decode(jwt_cookie, secret, algorithms=["HS256"])
+            user_id = payload.get("id")
+            if user_id:
+                with SessionLocal() as db:
+                    row = db.execute(select(User).where(User.id == user_id)).scalar_one_or_none()
+                if row:
+                    return {
+                        "email": row.email,
+                        "passwordSalt": row.password_salt,
+                        "passwordHash": row.password_hash,
+                        "token": row.token,
+                        "createdAt": row.created_at.isoformat(),
+                    }
+        except JWTError:
+            raise HTTPException(status_code=401, detail="Invalid session token.")
+
+    # Fallback: unauthorized
+    raise HTTPException(status_code=401, detail="Missing authorization token.")

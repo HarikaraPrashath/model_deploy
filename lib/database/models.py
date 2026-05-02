@@ -66,6 +66,15 @@ class JobMetadata(Base):
     ad_type = Column(String, nullable=True)
     files = Column(JSONB, nullable=False, default=list)
     text_snippet = Column(Text, nullable=True)
+    text_full = Column(Text, nullable=True)
+    skills_found = Column(JSONB, nullable=False, default=list)
+    must_have_skills = Column(JSONB, nullable=False, default=list)
+    nice_to_have_skills = Column(JSONB, nullable=False, default=list)
+    core_skills = Column(JSONB, nullable=False, default=list)
+    role_tags = Column(JSONB, nullable=False, default=list)
+    source_keyword = Column(String, nullable=True)
+    scraped_at = Column(DateTime, nullable=True, index=True)
+    extraction_metadata = Column(JSONB, nullable=False, default=dict)
     image_file = Column(Text, nullable=True)
     created_at = Column(DateTime, default=_utcnow, nullable=False, index=True)
 
@@ -96,11 +105,32 @@ class RankedJob(Base):
     matched_nice_to_have = Column(JSONB, nullable=False, default=list)
     weighted_components = Column(JSONB, nullable=False, default=dict)
     explanations = Column(JSONB, nullable=False, default=list)
+    ocr_text = Column(Text, nullable=True)
+    regex_skills_found = Column(JSONB, nullable=False, default=list)
+    llm_skills_found = Column(JSONB, nullable=True, default=list)
+    llm_must_have_skills = Column(JSONB, nullable=True, default=list)
+    llm_nice_to_have_skills = Column(JSONB, nullable=True, default=list)
+    extraction_source = Column(String, nullable=True)
+    extraction_metadata = Column(JSONB, nullable=False, default=dict)
+    vision_skills_found = Column(JSONB, nullable=False, default=list)
+    vision_must_have_skills = Column(JSONB, nullable=False, default=list)
+    vision_nice_to_have_skills = Column(JSONB, nullable=False, default=list)
     created_at = Column(DateTime, default=_utcnow, nullable=False, index=True)
 
 
 class TrendSnapshot(Base):
     __tablename__ = "trend_history"
+
+    id = Column(String, primary_key=True, default=lambda: uuid.uuid4().hex)
+    ran_at = Column(DateTime, nullable=False, index=True)
+    keyword = Column(String, nullable=False)
+    job_count = Column(Integer, nullable=False)
+    skill_counts = Column(JSONB, nullable=False, default=dict)
+    role_counts = Column(JSONB, nullable=False, default=dict)
+
+
+class ScrTrend(Base):
+    __tablename__ = "scr_trend"
 
     id = Column(String, primary_key=True, default=lambda: uuid.uuid4().hex)
     ran_at = Column(DateTime, nullable=False, index=True)

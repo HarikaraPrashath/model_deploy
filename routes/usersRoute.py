@@ -1,11 +1,11 @@
 import os
+import secrets
 import smtplib
 from email.mime.text import MIMEText
 from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from passlib.context import CryptContext
 from jose import jwt, JWTError
 from dotenv import load_dotenv 
 
@@ -19,14 +19,12 @@ from database_model_schema.schemas import (
 )
 from auth import create_token
 
+# reuse hashing helpers from the career_market utilities
+from service.career_market.utils.auth_utils import _hash_password, _normalize_email
+
 load_dotenv()
 
 router = APIRouter()
-
-pwd_context = CryptContext(
-    schemes=["bcrypt"],
-    deprecated="auto"
-)
 
 SECRET = os.getenv("SECRET")
 
@@ -49,43 +47,55 @@ async def register_user(
 ):
     try:
         print(f"📝 Register request: name={data.name}, email={data.email}")
-        
+
         if len(data.password) < 8:
             raise HTTPException(
-            status_code=400,
-            detail="Password must be at least 8 characters long"
-    )
+                status_code=400,
+                detail="Password must be at least 8 characters long"
+            )
+
+        # normalize email for consistency
+        normalized_email = _normalize_email(data.email)
 
         # Check existing user
         result = await db.execute(
-            select(User).where(User.email == data.email)
+            select(User).where(User.email == normalized_email)
         )
         existing = result.scalars().first()
 
         if existing:
             raise HTTPException(status_code=400, detail="Email already exists")
 
-        hashed_password = pwd_context.hash(data.password)
+        # generate salt and hash
+        salt_bytes = secrets.token_bytes(16)
+        salt_hex = salt_bytes.hex()
+        password_hash = _hash_password(data.password, salt_bytes)
+
+        # create a database token for career-market (separate from JWT)
+        db_token = secrets.token_urlsafe(32)
 
         new_user = User(
             name=data.name,
-            email=data.email,
-            password=hashed_password
+            email=normalized_email,
+            password_salt=salt_hex,
+            password_hash=password_hash,
+            token=db_token,
         )
 
         db.add(new_user)
         await db.commit()
         await db.refresh(new_user)
 
-        token = create_token({"id": new_user.id})
+        # create JWT for cookie/session
+        jwt_token = create_token({"id": new_user.id})
 
         response.set_cookie(
             key="token",
-            value=token,
+            value=jwt_token,
             httponly=True,
-            secure=False,  # Set to True in production with HTTPS
+            secure=False,  # Set True in prod with HTTPS
             samesite="lax"
-    )
+        )
 
         return {
             "success": True,
@@ -94,7 +104,10 @@ async def register_user(
                 "name": new_user.name,
                 "email": new_user.email
             },
-            "token": token
+            # `token` is the DB-stored bearer token used by career-market endpoints
+            "token": new_user.token,
+            # `jwt` remains available for session/cookie based flows
+            "jwt": jwt_token,
         }
     except HTTPException as e:
         print(f"❌ Register error: {e.detail}")
@@ -112,22 +125,35 @@ async def login_user(
     db: AsyncSession = Depends(get_db)
 ):
 
+    normalized_email = _normalize_email(data.email)
     result = await db.execute(
-        select(User).where(User.email == data.email)
+        select(User).where(User.email == normalized_email)
     )
     user = result.scalars().first()
 
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    if not pwd_context.verify(data.password, user.password):
+    # verify using stored salt/hash
+    try:
+        salt_bytes = bytes.fromhex(user.password_salt)
+    except Exception:
+        raise HTTPException(status_code=500, detail="Corrupt user record")
+
+    if _hash_password(data.password, salt_bytes) != user.password_hash:
         raise HTTPException(status_code=401, detail="Incorrect password")
 
-    token = create_token({"id": user.id})
+    # optionally refresh the db token
+    user.token = secrets.token_urlsafe(32)
+    db.add(user)
+    await db.commit()
+    await db.refresh(user)
+
+    jwt_token = create_token({"id": user.id})
 
     response.set_cookie(
         key="token",
-        value=token,
+        value=jwt_token,
         httponly=True,
         secure=False,
         samesite="lax"
@@ -140,7 +166,10 @@ async def login_user(
             "name": user.name,
             "email": user.email
         },
-        "token": token
+        # expose the DB bearer token so front-end can call career-market endpoints
+        "token": user.token,
+        # also return the session JWT
+        "jwt": jwt_token,
     }
 
 
@@ -221,7 +250,10 @@ async def reset_password(
             detail="Password must be between 8 and 72 characters"
         )
 
-    user.password = pwd_context.hash(data.password)
+    # re-generate salt/hash
+    salt_bytes = secrets.token_bytes(16)
+    user.password_salt = salt_bytes.hex()
+    user.password_hash = _hash_password(data.password, salt_bytes)
 
     await db.commit()
 

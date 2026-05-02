@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -36,7 +37,38 @@ def _default_profile() -> dict[str, Any]:
         "projects": [],
         "certifications": [],
         "recommendations": [],
+        "careerGuide": {},
+        "careerPrep": {},
+        "careerMarket": {},
+        "careerEmotion": {},
     }
+
+
+def _split_skills(skills: Any) -> list[str]:
+    """Splits skills by common separators and returns a deduplicated list of trimmed strings."""
+    if not skills:
+        return []
+    if isinstance(skills, str):
+        # Split by newline, comma, semicolon, bullet points, or multiple spaces
+        raw = re.split(r"[\n,;\u2022·]|\s{2,}", skills)
+    elif isinstance(skills, list):
+        raw = []
+        for s in skills:
+            if isinstance(s, str):
+                raw.extend(re.split(r"[\n,;\u2022·]|\s{2,}", s))
+            else:
+                raw.append(str(s))
+    else:
+        raw = [str(skills)]
+
+    seen = set()
+    result = []
+    for s in raw:
+        cleaned = s.strip()
+        if cleaned and cleaned.lower() not in seen:
+            seen.add(cleaned.lower())
+            result.append(cleaned)
+    return result
 
 
 def _build_student_profile(profile: dict[str, Any], defaults: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -49,15 +81,10 @@ def _build_student_profile(profile: dict[str, Any], defaults: dict[str, Any] | N
         name = str(defaults.get("name", "")).strip() or "Student"
 
     skills = profile.get("skills", [])
-    skills_list = (
-        [str(skill).strip() for skill in skills if str(skill).strip()]
-        if isinstance(skills, list)
-        else []
-    )
+    skills_list = _split_skills(skills)
     if not skills_list:
         fallback_skills = defaults.get("technical_skills", [])
-        if isinstance(fallback_skills, list):
-            skills_list = [str(skill).strip() for skill in fallback_skills if str(skill).strip()]
+        skills_list = _split_skills(fallback_skills)
 
     projects: list[Any] = []
     raw_projects = profile.get("projects", [])
@@ -131,11 +158,15 @@ def _coerce_profile(payload: dict[str, Any]) -> dict[str, Any]:
         }
     )
 
-    for key in ["about", "experiences", "educationItems", "skills", "projects", "certifications", "recommendations"]:
-        value = payload.get(key, base[key])
-        if isinstance(base[key], list):
+    for key in ["about", "experiences", "educationItems", "skills", "projects", "certifications", "recommendations", "careerGuide", "careerPrep", "careerMarket", "careerEmotion"]:
+        value = payload.get(key, base.get(key, [] if key in ["experiences", "educationItems", "skills", "projects", "certifications", "recommendations"] else {} if key in ["careerGuide", "careerPrep", "careerMarket", "careerEmotion"] else ""))
+        if key in ["careerGuide", "careerPrep", "careerMarket", "careerEmotion"]:
+            base[key] = value if isinstance(value, dict) else {}
+        elif key == "skills":
+            base[key] = _split_skills(value)
+        elif isinstance(base.get(key), list):
             base[key] = value if isinstance(value, list) else []
-        elif isinstance(base[key], str):
+        elif isinstance(base.get(key), str):
             base[key] = value if isinstance(value, str) else ""
 
     return base
