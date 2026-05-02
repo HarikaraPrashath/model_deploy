@@ -127,3 +127,14 @@ class TrendSnapshot(Base):
     job_count = Column(Integer, nullable=False)
     skill_counts = Column(JSONB, nullable=False, default=dict)
     role_counts = Column(JSONB, nullable=False, default=dict)
+
+
+class ScrTrend(Base):
+    __tablename__ = "scr_trend"
+
+    id = Column(String, primary_key=True, default=lambda: uuid.uuid4().hex)
+    ran_at = Column(DateTime, nullable=False, index=True)
+    keyword = Column(String, nullable=False)
+    job_count = Column(Integer, nullable=False)
+    skill_counts = Column(JSONB, nullable=False, default=dict)
+    role_counts = Column(JSONB, nullable=False, default=dict)

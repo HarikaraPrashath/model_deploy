@@ -44,6 +44,10 @@ from service.career_market.trends_service import (
     get_trends_service,
     seed_trends_service,
 )
+from service.career_market.all_trends_service import (
+    get_all_trend_history_service,
+    get_all_trends_service,
+)
 from service.career_market.analysis_service import analyse_service
 from service.personality_career.interview_analysis_service import analyze_interview_service
 from service.career_market.root_health_service import health_service
@@ -89,7 +93,7 @@ app = FastAPI(title="Career Prediction", lifespan=lifespan)
 
 # only allow the front-end host (or list of hosts) when cookies/credentials are used
 # Wildcard (*) is not permitted when credentials=True.  Pull from env or default to localhost:3000.
-frontend_origins = os.getenv("FRONTEND_ORIGINS")
+frontend_origins = os.getenv("FRONT_ORIGINS")
 if frontend_origins:
     origins_list = [o.strip() for o in frontend_origins.split(",") if o.strip()]
 else:
@@ -188,6 +192,14 @@ def get_trend_history_endpoint() -> JSONResponse:
 @app.get("/trends")
 def get_trends_endpoint() -> JSONResponse:
     return get_trends_service()
+
+@app.get("/trends/all/history")
+def get_all_trend_history_endpoint() -> JSONResponse:
+    return get_all_trend_history_service()
+
+@app.get("/trends/all")
+def get_all_trends_endpoint() -> JSONResponse:
+    return get_all_trends_service()
 
 @app.post("/trends/seed")
 async def seed_trends_endpoint(request: Request, payload: dict[str, Any] | None = None) -> JSONResponse:
