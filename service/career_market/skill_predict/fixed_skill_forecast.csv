@@ -1,0 +1,73 @@
+skill_name,current_count,forecasted_count_30d,absolute_growth,relative_growth_pct,growth_score,trend_status,rmse,mape_pct,coverage_pct
+argocd,0.0,0.0,0.0,0.0,0.0,Stable,0.23,6.9,75.89
+aws,24.0,14.09,-9.91,-41.27,-0.5045,Declining,0.2,6.02,83.93
+azure,22.0,18.42,-3.58,-16.29,-0.1693,Declining,0.23,6.73,79.17
+backend caching,0.0,0.0,0.0,0.0,0.0,Stable,0.28,8.59,69.64
+ci/cd,29.0,16.66,-12.34,-42.57,-0.5302,Declining,0.21,6.38,75.3
+clean architecture,0.0,0.0,0.0,0.0,0.0,Stable,0.22,6.43,79.46
+cloud observability,0.0,0.0,0.0,0.0,0.0,Stable,0.24,7.26,73.81
+cloud security,0.0,0.0,0.0,0.0,0.0,Stable,0.26,7.3,74.4
+"compliance (iso 27001, soc 2, gdpr)",0.0,0.0,0.0,0.0,0.0,Stable,0.22,6.35,77.68
+dast,0.0,0.0,0.0,0.0,0.0,Stable,0.25,7.16,71.43
+ddd,0.0,0.0,0.0,0.0,0.0,Stable,0.2,5.94,75.6
+design systems,0.0,0.0,0.0,0.0,0.0,Stable,0.26,8.11,72.92
+devsecops,0.0,0.0,0.0,0.0,0.0,Stable,0.24,6.79,74.7
+docker,6.0,16.67,10.67,177.83,0.9259,Rising,0.16,4.62,75.0
+figma,0.0,0.0,0.0,0.0,0.0,Stable,0.3,8.34,70.83
+framer motion,0.0,0.0,0.0,0.0,0.0,Stable,0.25,7.43,77.98
+git,19.0,15.71,-3.29,-17.3,-0.1795,Declining,0.03,0.92,55.95
+gitops,0.0,0.0,0.0,0.0,0.0,Stable,0.22,6.68,81.25
+grafana,0.0,0.0,0.0,0.0,0.0,Stable,0.21,6.14,84.52
+graphql,2.0,10.0,8.0,400.0,1.2993,Rising,0.27,8.11,72.62
+graphql subscriptions,0.0,0.0,0.0,0.0,0.0,Stable,0.24,7.05,78.27
+incident management,0.0,0.0,0.0,0.0,0.0,Stable,0.23,6.9,73.21
+java,19.0,16.09,-2.91,-15.33,-0.1574,Declining,0.21,6.0,81.55
+javascript,28.0,16.0,-12.0,-42.87,-0.5343,Declining,0.27,8.22,65.48
+kubernetes,2.0,10.0,8.0,400.0,1.2993,Rising,0.23,6.8,77.08
+langchain,0.0,0.0,0.0,0.0,0.0,Stable,0.28,8.62,70.54
+large language models (llms),0.0,0.0,0.0,0.0,0.0,Stable,0.25,7.76,73.51
+linux,17.0,12.89,-4.11,-24.15,-0.2589,Declining,0.03,0.82,75.0
+machine learning,5.0,16.76,11.76,235.14,1.085,Rising,0.24,6.92,72.62
+micro-interactions,0.0,0.0,0.0,0.0,0.0,Stable,0.22,6.56,72.92
+microservices,0.0,0.0,0.0,0.0,0.0,Stable,0.25,7.11,68.15
+model fine-tuning,0.0,0.0,0.0,0.0,0.0,Stable,0.27,8.49,61.9
+motion design,0.0,0.0,0.0,0.0,0.0,Stable,0.25,7.77,80.36
+next.js,5.0,17.39,12.39,247.87,1.1202,Rising,0.23,6.77,78.27
+node.js,7.0,20.45,13.45,192.07,0.9861,Rising,0.25,7.16,73.81
+oauth 2.0,0.0,0.0,0.0,0.0,0.0,Stable,0.28,8.54,64.29
+okrs,0.0,0.0,0.0,0.0,0.0,Stable,0.26,7.7,72.62
+openapi / swagger,0.0,0.0,0.0,0.0,0.0,Stable,0.24,7.0,78.57
+postgresql,10.0,20.59,10.59,105.89,0.6743,Rising,0.24,7.04,75.6
+product management,0.0,0.0,0.0,0.0,0.0,Stable,0.18,5.52,80.65
+prometheus,0.0,0.0,0.0,0.0,0.0,Stable,0.23,6.92,74.11
+python,27.0,19.12,-7.88,-29.18,-0.3304,Declining,0.14,3.83,76.49
+pytorch,1.0,5.0,4.0,400.0,1.0986,Rising,0.21,6.33,83.93
+rabbitmq,0.0,0.0,0.0,0.0,0.0,Stable,0.25,7.49,63.39
+rag,4.0,15.44,11.44,285.94,1.1901,Rising,0.27,8.08,79.17
+react,17.0,17.97,0.97,5.73,0.0527,Stable,0.15,4.16,74.4
+redux toolkit,0.0,0.0,0.0,0.0,0.0,Stable,0.24,6.93,83.04
+responsive design principles,0.0,0.0,0.0,0.0,0.0,Stable,0.21,5.98,72.02
+rest api,34.0,16.66,-17.34,-51.0,-0.6841,Declining,0.26,7.86,64.88
+risk management,0.0,0.0,0.0,0.0,0.0,Stable,0.25,7.28,78.57
+roadmap planning,0.0,0.0,0.0,0.0,0.0,Stable,0.22,6.62,80.95
+sast,0.0,0.0,0.0,0.0,0.0,Stable,0.21,6.12,84.82
+slo,0.0,0.0,0.0,0.0,0.0,Stable,0.21,6.45,82.44
+software estimation,0.0,0.0,0.0,0.0,0.0,Stable,0.27,8.49,63.99
+speech recognition,0.0,0.0,0.0,0.0,0.0,Stable,0.25,7.54,76.79
+sql,35.0,20.18,-14.82,-42.35,-0.5306,Declining,0.03,0.75,72.32
+stakeholder management,0.0,0.0,0.0,0.0,0.0,Stable,0.24,7.32,78.57
+storybook,0.0,0.0,0.0,0.0,0.0,Stable,0.27,8.17,71.13
+tailwind,3.0,15.0,12.0,400.0,1.3863,Rising,0.28,8.42,62.2
+technical leadership,0.0,0.0,0.0,0.0,0.0,Stable,0.27,8.3,75.3
+tensorflow,1.0,5.0,4.0,400.0,1.0986,Rising,0.24,7.22,75.89
+terraform,6.0,14.97,8.97,149.49,0.8248,Rising,0.26,7.41,76.49
+threat modeling,0.0,0.0,0.0,0.0,0.0,Stable,0.26,7.48,63.1
+typescript,10.0,15.54,5.54,55.44,0.4081,Rising,0.18,5.09,68.75
+usability testing,0.0,0.0,0.0,0.0,0.0,Stable,0.22,6.24,83.33
+ux writing,0.0,0.0,0.0,0.0,0.0,Stable,0.27,8.29,70.24
+vector embeddings,0.0,0.0,0.0,0.0,0.0,Stable,0.23,6.72,74.7
+vite,0.0,0.0,0.0,0.0,0.0,Stable,0.25,7.33,78.27
+web performance optimization,0.0,0.0,0.0,0.0,0.0,Stable,0.25,7.64,69.35
+webhooks,2.0,10.0,8.0,400.0,1.2993,Rising,0.27,8.44,70.24
+zero trust architecture,0.0,0.0,0.0,0.0,0.0,Stable,0.24,6.59,79.17
+zustand,0.0,0.0,0.0,0.0,0.0,Stable,0.25,7.16,63.99

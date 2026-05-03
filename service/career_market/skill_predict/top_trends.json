@@ -1,0 +1,86 @@
+{
+    "rising": [
+        {
+            "skill_name": "tailwind",
+            "growth_score": 1.3863,
+            "absolute_growth": 12.0,
+            "trend_status": "Rising",
+            "coverage_pct": 62.2,
+            "mape_pct": 8.42
+        },
+        {
+            "skill_name": "graphql",
+            "growth_score": 1.2993,
+            "absolute_growth": 8.0,
+            "trend_status": "Rising",
+            "coverage_pct": 72.62,
+            "mape_pct": 8.11
+        },
+        {
+            "skill_name": "webhooks",
+            "growth_score": 1.2993,
+            "absolute_growth": 8.0,
+            "trend_status": "Rising",
+            "coverage_pct": 70.24,
+            "mape_pct": 8.44
+        },
+        {
+            "skill_name": "kubernetes",
+            "growth_score": 1.2993,
+            "absolute_growth": 8.0,
+            "trend_status": "Rising",
+            "coverage_pct": 77.08,
+            "mape_pct": 6.8
+        },
+        {
+            "skill_name": "rag",
+            "growth_score": 1.1901,
+            "absolute_growth": 11.44,
+            "trend_status": "Rising",
+            "coverage_pct": 79.17,
+            "mape_pct": 8.08
+        }
+    ],
+    "declining": [
+        {
+            "skill_name": "rest api",
+            "growth_score": -0.6841,
+            "absolute_growth": -17.34,
+            "trend_status": "Declining",
+            "coverage_pct": 64.88,
+            "mape_pct": 7.86
+        },
+        {
+            "skill_name": "javascript",
+            "growth_score": -0.5343,
+            "absolute_growth": -12.0,
+            "trend_status": "Declining",
+            "coverage_pct": 65.48,
+            "mape_pct": 8.22
+        },
+        {
+            "skill_name": "sql",
+            "growth_score": -0.5306,
+            "absolute_growth": -14.82,
+            "trend_status": "Declining",
+            "coverage_pct": 72.32,
+            "mape_pct": 0.75
+        },
+        {
+            "skill_name": "ci/cd",
+            "growth_score": -0.5302,
+            "absolute_growth": -12.34,
+            "trend_status": "Declining",
+            "coverage_pct": 75.3,
+            "mape_pct": 6.38
+        },
+        {
+            "skill_name": "aws",
+            "growth_score": -0.5045,
+            "absolute_growth": -9.91,
+            "trend_status": "Declining",
+            "coverage_pct": 83.93,
+            "mape_pct": 6.02
+        }
+    ]
+}
