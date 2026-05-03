@@ -1,11 +1,15 @@
+# =========================
 # Core
+# =========================
 fastapi
 uvicorn[standard]
 python-multipart
 python-dotenv
 pytest
 
+# =========================
 # Data Science
+# =========================
 pandas
 numpy
 scikit-learn
@@ -15,10 +19,14 @@ imbalanced-learn
 seaborn
 matplotlib
 
+# =========================
 # ML / AI
+# =========================
 groq
 
+# =========================
 # Database
+# =========================
 sqlalchemy>=2.0.36
 alembic
 psycopg[binary]
@@ -26,13 +34,17 @@ psycopg2-binary
 asyncpg
 aiosqlite
 
+# =========================
 # Security / Auth
+# =========================
 python-jose
 passlib[bcrypt]
 bcrypt>=4.0.1
 PyJWT
 
+# =========================
 # OCR / PDF / File Processing
+# =========================
 pymupdf
 pdfminer.six
 pillow
@@ -41,7 +53,9 @@ paddlepaddle
 opencv-python
 rapidfuzz
 
+# =========================
 # Web / Scraping / Automation
+# =========================
 selenium
 webdriver-manager
 beautifulsoup4
@@ -51,5 +65,21 @@ charset_normalizer<4
 chardet<5,>=3.0.2
 nltk
 
+# =========================
 # Validation
+# =========================
 email-validator
+
+
+# ==================================================
+# Additional Dependencies (AI Interview System)
+# ==================================================
+
+pydantic
+pydantic-settings
+websockets
+scipy
+torch
+torchvision
+timm
+opencv-python

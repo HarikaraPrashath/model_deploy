@@ -4,6 +4,7 @@
 # In[1]:
 
 
+import lib.session
 import sys
 import os
 import re
