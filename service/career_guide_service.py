@@ -7,8 +7,8 @@ from lib.prompt import build_guidance_prompt, get_groq_client
 # =========================
 # Model Loading
 # =========================
-MODEL_PATH = "models/Career_Guide/career_prediction_model.joblib"
-ENC_PATH   = "models/Career_Guide/career_label_encoder.joblib"
+MODEL_PATH = "models/Career_Guide/career_prediction_model_update_version.joblib"
+ENC_PATH   = "models/Career_Guide/career_label_encoder_update_version.joblib"
 
 model = joblib.load(MODEL_PATH)
 label_enc = joblib.load(ENC_PATH)
@@ -101,6 +101,90 @@ def run_prediction(inp):
         columns=["Is_Sliit_Student", "Specialization"],
         errors="ignore"
     )
+
+    # Normalize categorical fields expected by the model
+    semester_raw = str(inp_dict.get("Current_semester") or "").strip()
+    sem_clean = semester_raw.replace(" ", "").upper()
+    sem_map = {
+        "1Y1S": "1st",
+        "1Y2S": "1st",
+        "2Y1S": "2nd",
+        "2Y2S": "2nd",
+        "3Y1S": "3rd",
+        "3Y2S": "3rd",
+        "4Y1S": "4th",
+        "4Y2S": "4th",
+    }
+    if sem_clean in sem_map:
+        df["Current_semester"] = sem_map[sem_clean]
+    elif semester_raw.lower() in {"1st", "2nd", "3rd", "4th"}:
+        df["Current_semester"] = semester_raw.lower()
+    else:
+        df["Current_semester"] = "1st"
+
+    learning_raw = str(inp_dict.get("Learning_Style") or "").strip().lower()
+    learning_map = {
+        "auditory": "Auditory",
+        "kinesthetic": "Kinesthetic",
+        "visual": "Visual",
+    }
+    df["Learning_Style"] = learning_map.get(learning_raw, "Visual")
+
+    valid_dominant = {
+        "Riasec_Artistic",
+        "Riasec_Conventional",
+        "Riasec_Enterprising",
+        "Riasec_Investigative",
+        "Riasec_Realistic",
+        "Riasec_Social",
+    }
+    dominant_raw = str(inp_dict.get("Riasec_Dominant") or "").strip()
+    if dominant_raw in valid_dominant:
+        dominant = dominant_raw
+    else:
+        riasec_scores = {
+            "Riasec_Realistic": float(inp_dict.get("Riasec_Realistic") or 0),
+            "Riasec_Investigative": float(inp_dict.get("Riasec_Investigative") or 0),
+            "Riasec_Artistic": float(inp_dict.get("Riasec_Artistic") or 0),
+            "Riasec_Social": float(inp_dict.get("Riasec_Social") or 0),
+            "Riasec_Enterprising": float(inp_dict.get("Riasec_Enterprising") or 0),
+            "Riasec_Conventional": float(inp_dict.get("Riasec_Conventional") or 0),
+        }
+        dominant = max(riasec_scores, key=riasec_scores.get)
+    df["Riasec_Dominant"] = dominant
+
+    # Ensure all required numeric columns exist, fill missing with 0
+    numeric_columns = [
+        "GPA",
+        "English_score",
+        "Ocean_Openness",
+        "Ocean_Conscientiousness",
+        "Ocean_Extraversion",
+        "Ocean_Agreeableness",
+        "Ocean_Neuroticism",
+        "Riasec_Realistic",
+        "Riasec_Investigative",
+        "Riasec_Artistic",
+        "Riasec_Social",
+        "Riasec_Enterprising",
+        "Riasec_Conventional",
+        "Programming",
+        "Web",
+        "Data",
+        "AI",
+        "Cloud",
+        "Security",
+        "Creative",
+        "Leadership",
+        "Communication",
+        "Is_Analytical",
+        "Is_Creative",
+        "Is_Social",
+    ]
+    for col in numeric_columns:
+        if col not in df.columns:
+            df[col] = 0
+        df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
 
     probs = model.predict_proba(df)[0]
     top3_idx = np.argsort(probs)[-3:][::-1]
