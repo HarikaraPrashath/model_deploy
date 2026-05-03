@@ -10,10 +10,10 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 
 # Use SQLite only if DATABASE_URL is missing
 if not DATABASE_URL:
-    print("⚠️ Using SQLite (no DATABASE_URL found)")
+    print("Using SQLite (no DATABASE_URL found)")
     DATABASE_URL = "sqlite+aiosqlite:///./fastapi_dev.db"
 else:
-    print("✅ Using PostgreSQL database")
+    print("Using PostgreSQL database")
 
 # Convert PostgreSQL URL to async format
 if DATABASE_URL.startswith("postgresql+psycopg2://"):
