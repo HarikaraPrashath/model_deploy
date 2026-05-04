@@ -92,6 +92,8 @@ AI Ethics
 Speech Recognition
 Text-to-Speech (TTS)
 Recommendation Systems
+AI
+AI Tools
 
 # MLOps (Extended)
 Model Versioning

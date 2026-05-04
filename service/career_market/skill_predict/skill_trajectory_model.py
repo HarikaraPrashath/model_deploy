@@ -27,7 +27,7 @@ def main():
     
     print(f"Loading dataset from {csv_path}...")
     if not os.path.exists(csv_path):
-        print(f"❌ Error: {csv_path} not found!")
+        print(f" Error: {csv_path} not found!")
         return
 
     df = pd.read_csv(csv_path)
@@ -48,14 +48,14 @@ def main():
 
     skill_df = pd.DataFrame(skill_data)
 
-    # 🔥 STEP 1: DAILY AVERAGE (handles multiple rows per day)
+    #  STEP 1: DAILY AVERAGE (handles multiple rows per day)
     skill_series = (
         skill_df.groupby(['ds', 'skill'])['count']
         .mean()   # ✅ AVERAGE instead of sum
         .reset_index()
     )
 
-    # 🔥 STEP 2: FILL MISSING DATES
+    #  STEP 2: FILL MISSING DATES
     print("Fixing time series gaps...")
     full_dates = pd.date_range(skill_series['ds'].min(), skill_series['ds'].max())
 
@@ -69,7 +69,7 @@ def main():
 
     skill_series = pd.concat(fixed_data)
 
-    # 🔥 STEP 3: REMOVE WEAK SKILLS
+    #  STEP 3: REMOVE WEAK SKILLS
     skill_totals = skill_series.groupby('skill')['count'].sum()
     target_skills = skill_totals[skill_totals >= 300].index.tolist()
 
@@ -88,13 +88,13 @@ def main():
 
         df_skill = df_skill_raw.rename(columns={'count': 'y'})
 
-        # 🔥 STEP 4: SMOOTHING
+        #  STEP 4: SMOOTHING
         df_skill['y'] = df_skill['y'].rolling(window=3, min_periods=1).mean()
 
-        # 🔥 STEP 5: LOG TRANSFORM
+        #  STEP 5: LOG TRANSFORM
         df_skill['y'] = np.log1p(df_skill['y'])
 
-        # 🔥 STEP 6: IMPROVED PROPHET
+        #  STEP 6: IMPROVED PROPHET
         model = Prophet(
             yearly_seasonality=False,
             weekly_seasonality=True,
@@ -109,18 +109,18 @@ def main():
         future = model.make_future_dataframe(periods=30)
         forecast = model.predict(future)
 
-        # 🔥 STEP 7: SAFE INVERSE TRANSFORM
+        #  STEP 7: SAFE INVERSE TRANSFORM
         forecast['yhat'] = np.expm1(forecast['yhat'])
 
         # forecast['yhat'] already computed above
 
 
-        # 🔥 CLIP EXTREME VALUES
+        #  CLIP EXTREME VALUES
         forecast['yhat'] = np.clip(forecast['yhat'], 0, latest * 5)
 
         forecast_value = forecast['yhat'].iloc[-1]
 
-        # 🔥 STEP 8: EVALUATION
+        #  STEP 8: EVALUATION
         rmse, mape, coverage = None, None, None
         try:
             df_cv = cross_validation(
@@ -137,14 +137,14 @@ def main():
         except:
             pass
 
-        # 🔥 STEP 9: GROWTH & TREND
+        #  STEP 9: GROWTH & TREND
         delta = forecast_value - latest
         
         # absolute growth
         absolute_growth = delta
         # relative growth (%)
         relative_growth_pct = ((delta / latest) * 100) if latest > 0 else 0
-        # 🔥 FINAL CONSISTENT SCORE (Log-scaled growth)
+        #  FINAL CONSISTENT SCORE (Log-scaled growth)
         growth_score = np.log1p(forecast_value) - np.log1p(latest)
 
         # Adaptive threshold (research-grade)
@@ -176,7 +176,7 @@ def main():
     results_csv_path = os.path.join(script_dir, 'fixed_skill_forecast.csv')
     results_df.to_csv(results_csv_path, index=False)
     
-    # 🔥 NEW: Save top 5 rising and declining for frontend
+    #  NEW: Save top 5 rising and declining for frontend
     top_rising = results_df[results_df['trend_status'] == 'Rising'].sort_values('growth_score', ascending=False).head(5)
     top_declining = results_df[results_df['trend_status'] == 'Declining'].sort_values('growth_score', ascending=True).head(5)
     
@@ -190,7 +190,7 @@ def main():
         json.dump(trends_json, f, indent=4)
     print(f"Top trends saved to {trends_json_path}")
 
-    # 🔥 STEP 10: SAVE MODELS
+    #  STEP 10: SAVE MODELS
     print("\nSaving models...")
     models_path = os.path.join(script_dir, 'skill_models.joblib')
     joblib.dump(trained_models, models_path)
@@ -202,13 +202,13 @@ def main():
     
     # Top Rising
     rising = results_df[results_df['trend_status'] == 'Rising'].sort_values('growth_score', ascending=False).head(5)
-    print("\n🚀 TOP 5 RISING SKILLS:")
+    print("\n TOP 5 RISING SKILLS:")
     for _, row in rising.iterrows():
         print(f"  - {row['skill_name']:<20}: Score {row['growth_score']:.4f} (+{row['absolute_growth']:.1f} units)")
         
     # Top Declining
     declining = results_df[results_df['trend_status'] == 'Declining'].sort_values('growth_score', ascending=True).head(5)
-    print("\n📉 TOP 5 DECLINING SKILLS:")
+    print("\n TOP 5 DECLINING SKILLS:")
     for _, row in declining.iterrows():
         print(f"  - {row['skill_name']:<20}: Score {row['growth_score']:.4f} ({row['absolute_growth']:.1f} units)")
 
@@ -217,12 +217,12 @@ def main():
     avg_mape = results_df['mape_pct'].dropna().mean()
     avg_cov = results_df['coverage_pct'].dropna().mean()
     
-    print("\n📊 GLOBAL MODEL PERFORMANCE:")
+    print("\n GLOBAL MODEL PERFORMANCE:")
     print(f"  - Avg RMSE:     {avg_rmse:.2f}")
     print(f"  - Avg MAPE:     {avg_mape:.2f}%")
     print(f"  - Avg Coverage: {avg_cov:.2f}%")
     
-    print("\n✅ Done. Results saved to fixed_skill_forecast.csv")
+    print("\n Done. Results saved to fixed_skill_forecast.csv")
 
 if __name__ == "__main__":
     main()
