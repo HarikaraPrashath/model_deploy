@@ -28,7 +28,6 @@ env/
 # =========================
 # Environment variables
 # =========================
-.env
 env
 
 # =========================
@@ -41,7 +40,6 @@ Thumbs.db
 # IDE / Editor
 # =========================
 .idea/
-.vscode/
 *.swp
 *.swo
 
@@ -57,3 +55,5 @@ htmlcov/
 build/
 dist/
 *.egg-info/
+config.bat
+node_modules
