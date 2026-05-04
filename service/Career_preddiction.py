@@ -7,8 +7,8 @@ from model_schema.schema import StudentInput
 # ------------------------
 # Load Model & Encoder (only once)
 # ------------------------
-model_path = "models/Career_Prediction/career_model_pipeline.joblib"
-encoder_path = "models/Career_Prediction/label_encoder.joblib"
+model_path = "models/Career_Prediction/career_model-random.joblib"
+encoder_path = "models/Career_Prediction/label_encoder-random.joblib"
 
 if not os.path.exists(model_path) or not os.path.exists(encoder_path):
     raise FileNotFoundError("Model or encoder not found!")

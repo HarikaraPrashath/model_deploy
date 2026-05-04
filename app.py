@@ -99,10 +99,10 @@ async def lifespan(app: FastAPI):
             await conn.run_sync(Base.metadata.create_all)
             # ensure tables declared in lib/database/models.py are created too
             await conn.run_sync(LibBase.metadata.create_all)
-        print("✅ Database tables created successfully")
+        print("Database tables created successfully")
     except Exception as e:
-        print(f"⚠️  Failed to create database tables: {str(e)}")
-        print("ℹ️  App will continue running (using local SQLite)")
+        print(f"Failed to create database tables: {str(e)}")
+        print("App will continue running (using local SQLite)")
 
     yield
 
@@ -149,7 +149,7 @@ def predict_career_route(inp: StudentInputGuide):
 
 @app.post("/predict")
 def predict_career(student: StudentInput):
-    print("✅ Request received for Random Forest prediction")
+    print("Request received for Random Forest prediction")
     return predict_career_service(student)
 
 @app.post("/debug")
@@ -259,67 +259,11 @@ async def search_ranked_endpoint(request: Request, payload: dict[str, Any] | Non
 async def analyse_endpoint(request: Request, payload: dict[str, Any] | None = None) -> JSONResponse:
     return await analyse_service(request, payload)
 
-@app.post("/api/analyze")
-async def analyze_interview_endpoint(payload: dict[str, Any]) -> JSONResponse:
-    """Analyze interview emotions and predict career based on emotional patterns."""
-    return analyze_interview_service(payload)
 
 
-# sample questions route pulls from shared constants so it matches
-# the rest of the backend's data definitions.
 
-@app.get("/api/questions")
-def get_questions():
-    """Return a list of interview questions stored in constants.
-
-    The frontend relies on this to populate the interview UI.  Keeping the
-    data in a central constants module makes it easier to edit or extend
-    without touching the route code.
-    """
-    # the constant is a list of dicts matching the Question type
-    return {"questions": INTERVIEW_QUESTIONS}
-
-# WebSocket route used by front-end analyze feature
-from fastapi import WebSocket, WebSocketDisconnect
-
-@app.websocket("/ws/analyze")
-async def websocket_analyze(websocket: WebSocket):
-    """Websocket handler for the analyze feature.
-
-    When a client connects we immediately send the current set of
-    questions (mirroring the GET /api/questions route).  Afterwards we echo
-    any text received back to the client.  The client was previously closing
-    the socket quickly because it never received any data and assumed the
-    connection had failed; sending a welcome message/questions gives it
-    something to act on.
-
-    You should adapt the logic below to push live analysis updates instead
-    of the simple echo implementation.
-    """
-    await websocket.accept()
-    print("🔌 WebSocket /ws/analyze accepted")
-
-    # send the initial question list so the frontend can render them
-    # (replace this with a DB call, service call, etc. as needed)
-    try:
-        questions_payload = get_questions()  # returns {'questions': [...]}
-        await websocket.send_json(questions_payload)
-    except Exception as e:
-        print(f"⚠️ failed to send initial questions: {e}")
-
-    try:
-        while True:
-            text = await websocket.receive_text()
-            print("📥 received from client:", text)
-            # echo for now; real code would feed into analyse_service
-            await websocket.send_text(f"received: {text}")
-    except WebSocketDisconnect:
-        print("🛑 WebSocket /ws/analyze disconnected")
 
 # Authentication
-app.include_router(router, prefix="/api/users")
-# -------------------- USER ROUTER --------------------
-
 app.include_router(router, prefix="/api/users")
 
 # ============================================================
