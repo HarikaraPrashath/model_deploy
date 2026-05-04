@@ -21,27 +21,34 @@ label_enc = joblib.load(encoder_path)
 # Convert Frontend JSON → Model Input
 # ------------------------
 def frontend_to_model_input(data: StudentInput) -> pd.DataFrame:
+    # Combine all technical skills into student_programming_learned as per dataset
+    all_skills = (
+        data.technicalSkills.programming +
+        data.technicalSkills.frameworks +
+        data.technicalSkills.databases +
+        data.technicalSkills.cloudPlatforms
+    )
+    skills_str = ", ".join(all_skills)
+    
     row = {
-        "student_Programming_learned": ", ".join(data.technicalSkills.programming),
-        "student_freamwork_know": ", ".join(data.technicalSkills.frameworks),
-        "student_Databases_Tools": ", ".join(data.technicalSkills.databases),
-        "student_Cloud_Platforms_Infra_Tools": ", ".join(data.technicalSkills.cloudPlatforms),
-        "student_expectation": "",
         "gender": data.personalInfo.gender,
         "languages_selected": ", ".join(data.personalInfo.languages),
-        "Education Level": data.academicBackground.educationLevel,
-        "major/ field of study": data.academicBackground.major,
+        "education_level": data.academicBackground.educationLevel,
+        "major_field_of_study": data.academicBackground.major,
+        "cgpa": data.academicBackground.gpa,
         "current_year": str(data.academicBackground.currentYear),
         "current_semester": str(data.academicBackground.currentSemester),
+        "experties_major_gpa": data.academicBackground.gpa,  # Using cgpa as default
+        "experties_suggest_career": "",  # Placeholder
+        "student_programming_learned": skills_str,
+        "mind_stress_management": data.career.stressManagement,
         "learning_style": data.career.learningStyle,
+        "student_expectation": "",  # Placeholder
         "preferred_work_environment": data.careerInterests.workEnvironment,
         "work_life_balance": data.careerInterests.workLifeBalance,
         "internship_experience": data.career.internship,
-        "certifications": data.career.certifications,
-        "mind_stress_management": data.career.stressManagement,
-        "cgpa": data.academicBackground.gpa,
-        "experties_major_gpa": data.academicBackground.gpa,
-        "real_world_projects_completed": data.career.projects
+        "real_world_projects_completed": data.career.projects,
+        "certifications": data.career.certifications
     }
 
     return pd.DataFrame([row])
