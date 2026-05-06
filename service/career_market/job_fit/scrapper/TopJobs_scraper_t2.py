@@ -73,7 +73,7 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import SessionNotCreatedException, WebDriverException
+from selenium.common.exceptions import InvalidSessionIdException, SessionNotCreatedException, WebDriverException
 from webdriver_manager.chrome import ChromeDriverManager
 import json
 
@@ -123,14 +123,38 @@ if chrome_binary:
 else:
     print("Chrome binary not found in default locations; using system default lookup.")
 
-try:
-    service = Service(ChromeDriverManager().install())
-    driver = webdriver.Chrome(service=service, options=options)
-except (SessionNotCreatedException, WebDriverException) as e:
-    print(f"Failed to start Chrome; ensure Chrome is installed and matches the driver. Details: {e}")
-    raise
+CHROMEDRIVER_PATH = ChromeDriverManager().install()
+MAX_JOBS_PER_BROWSER = int(os.environ.get("TOPJOBS_MAX_JOBS_PER_BROWSER", "75"))
 
-wait = WebDriverWait(driver, 20)
+
+def start_driver():
+    try:
+        service = Service(CHROMEDRIVER_PATH)
+        new_driver = webdriver.Chrome(service=service, options=options)
+        return new_driver, WebDriverWait(new_driver, 20)
+    except (SessionNotCreatedException, WebDriverException) as e:
+        print(f"Failed to start Chrome; ensure Chrome is installed and matches the driver. Details: {e}")
+        raise
+
+
+def stop_driver(active_driver):
+    try:
+        if active_driver:
+            active_driver.quit()
+    except Exception:
+        pass
+
+
+def is_invalid_session_error(exc):
+    if isinstance(exc, InvalidSessionIdException):
+        return True
+    message = str(exc).lower()
+    return "invalid session id" in message or "session deleted" in message
+
+
+driver, wait = start_driver()
+
+jobs_since_browser_start = 0
 
 print(f"Searching for: {KEYWORD.upper()}\n")
 driver.get("https://www.topjobs.lk/index.jsp")
@@ -186,106 +210,124 @@ for idx, job in enumerate(jobs, 1):
         "files": []
     }
 
-    try:
-        driver.get(job["url"])
-        time.sleep(2)
+    if MAX_JOBS_PER_BROWSER > 0 and jobs_since_browser_start >= MAX_JOBS_PER_BROWSER:
+        print("   Restarting browser to keep long scrape stable")
+        stop_driver(driver)
+        driver, wait = start_driver()
+        jobs_since_browser_start = 0
 
-        # Wait for the remark div to load
+    for attempt in range(2):
         try:
-            wait.until(EC.presence_of_element_located((By.ID, "remark")))
-        except:
-            print(f"   ! Could not find job content div")
-            continue
+            driver.get(job["url"])
+            time.sleep(2)
 
-        soup = BeautifulSoup(driver.page_source, "html.parser")
-        remark_div = soup.find("div", {"id": "remark"})
-
-        if not remark_div:
-            print(f"   ! No remark div found")
-            continue
-
-        # Check if job ad is posted as an image
-        img_in_remark = remark_div.find("img")
-
-        if img_in_remark and img_in_remark.get("src"):
-            # IMAGE-BASED AD
-            print(f"    Image-based ad detected")
-            job_data["type"] = "image"
-
-            src = img_in_remark.get("src")
-            src = urljoin(job["url"], src)
-
+            # Wait for the remark div to load
             try:
-                r = requests.get(src, timeout=12)
-                if r.status_code == 200:
-                    ext = src.split(".")[-1].split("?")[0].split("/")[-1][:5].lower()
-                    ext = re.sub(r"[^a-z]", "", ext)
-                    if ext not in {"png", "jpg", "jpeg", "gif", "webp", "bmp"}:
-                        ext = "png"
-                    path = f"{OUTPUT_FOLDER}/{safe}_ad.{ext}"
-                    open(path, "wb").write(r.content)
-                    job_data["files"].append(os.path.basename(path))
-                    print(f"   @ Image saved: {os.path.basename(path)}")
-                else:
-                    print(f"   X Failed to download image (status {r.status_code})")
+                wait.until(EC.presence_of_element_located((By.ID, "remark")))
             except Exception as e:
-                print(f"   X Error downloading image: {e}")
+                if is_invalid_session_error(e):
+                    raise
+                print(f"   ! Could not find job content div")
+                break
 
-        else:
-            # TEXT-BASED AD
-            print(f"    Text-based ad detected")
-            job_data["type"] = "text"
+            soup = BeautifulSoup(driver.page_source, "html.parser")
+            remark_div = soup.find("div", {"id": "remark"})
 
-            # Extract text content
-            text_content = remark_div.get_text(separator="\n", strip=True)
-            job_data["raw_text"] = text_content
-            text_path = f"{OUTPUT_FOLDER}/{safe}_content.txt"
-            with open(text_path, "w", encoding="utf-8") as f:
-                f.write(text_content)
-            job_data["files"].append(os.path.basename(text_path))
-            print(f"   @ Text saved: {os.path.basename(text_path)}")
+            if not remark_div:
+                print(f"   ! No remark div found")
+                break
 
-            # Take screenshot of the job ad section
-            try:
-                element = driver.find_element(By.ID, "remark")
+            # Check if job ad is posted as an image
+            img_in_remark = remark_div.find("img")
 
-                # Scroll element into view
-                driver.execute_script("arguments[0].scrollIntoView(true);", element)
-                time.sleep(1)
+            if img_in_remark and img_in_remark.get("src"):
+                # IMAGE-BASED AD
+                print(f"    Image-based ad detected")
+                job_data["type"] = "image"
 
-                # Get element size and position
-                location = element.location
-                size = element.size
+                src = img_in_remark.get("src")
+                src = urljoin(job["url"], src)
 
-                # Take full page screenshot
-                screenshot_path = f"{OUTPUT_FOLDER}/{safe}_screenshot.png"
-                driver.save_screenshot(screenshot_path)
+                try:
+                    r = requests.get(src, timeout=12)
+                    if r.status_code == 200:
+                        ext = src.split(".")[-1].split("?")[0].split("/")[-1][:5].lower()
+                        ext = re.sub(r"[^a-z]", "", ext)
+                        if ext not in {"png", "jpg", "jpeg", "gif", "webp", "bmp"}:
+                            ext = "png"
+                        path = f"{OUTPUT_FOLDER}/{safe}_ad.{ext}"
+                        with open(path, "wb") as f:
+                            f.write(r.content)
+                        job_data["files"].append(os.path.basename(path))
+                        print(f"   @ Image saved: {os.path.basename(path)}")
+                    else:
+                        print(f"   X Failed to download image (status {r.status_code})")
+                except Exception as e:
+                    print(f"   X Error downloading image: {e}")
 
-                # Crop to just the job ad element using Pillow
-                from PIL import Image
-                img = Image.open(screenshot_path)
+            else:
+                # TEXT-BASED AD
+                print(f"    Text-based ad detected")
+                job_data["type"] = "text"
 
-                # Crop with some padding
-                left = max(0, location['x'] - 10)
-                top = max(0, location['y'] - 10)
-                right = min(img.width, location['x'] + size['width'] + 10)
-                bottom = min(img.height, location['y'] + size['height'] + 10)
+                # Extract text content
+                text_content = remark_div.get_text(separator="\n", strip=True)
+                job_data["raw_text"] = text_content
+                text_path = f"{OUTPUT_FOLDER}/{safe}_content.txt"
+                with open(text_path, "w", encoding="utf-8") as f:
+                    f.write(text_content)
+                job_data["files"].append(os.path.basename(text_path))
+                print(f"   @ Text saved: {os.path.basename(text_path)}")
 
-                cropped = img.crop((left, top, right, bottom))
-                cropped.save(screenshot_path)
+                # Take screenshot of the job ad section
+                try:
+                    element = driver.find_element(By.ID, "remark")
 
-                job_data["files"].append(os.path.basename(screenshot_path))
-                print(f"   @ Screenshot saved: {os.path.basename(screenshot_path)}")
-            except Exception as e:
-                print(f"   X Error taking screenshot: {e}")
+                    # Scroll element into view
+                    driver.execute_script("arguments[0].scrollIntoView(true);", element)
+                    time.sleep(1)
 
-        metadata.append(job_data)
+                    # Get element size and position
+                    location = element.location
+                    size = element.size
 
-    except Exception as e:
-        print(f"   X Error processing job: {e}")
-        continue
+                    # Take full page screenshot
+                    screenshot_path = f"{OUTPUT_FOLDER}/{safe}_screenshot.png"
+                    driver.save_screenshot(screenshot_path)
 
-driver.quit()
+                    # Crop to just the job ad element using Pillow
+                    from PIL import Image
+                    img = Image.open(screenshot_path)
+
+                    # Crop with some padding
+                    left = max(0, location['x'] - 10)
+                    top = max(0, location['y'] - 10)
+                    right = min(img.width, location['x'] + size['width'] + 10)
+                    bottom = min(img.height, location['y'] + size['height'] + 10)
+
+                    cropped = img.crop((left, top, right, bottom))
+                    cropped.save(screenshot_path)
+
+                    job_data["files"].append(os.path.basename(screenshot_path))
+                    print(f"   @ Screenshot saved: {os.path.basename(screenshot_path)}")
+                except Exception as e:
+                    print(f"   X Error taking screenshot: {e}")
+
+            metadata.append(job_data)
+            jobs_since_browser_start += 1
+            break
+
+        except Exception as e:
+            if is_invalid_session_error(e) and attempt == 0:
+                print("   X Browser session died; restarting Chrome and retrying this job")
+                stop_driver(driver)
+                driver, wait = start_driver()
+                jobs_since_browser_start = 0
+                continue
+            print(f"   X Error processing job: {e}")
+            break
+
+stop_driver(driver)
 
 # Save metadata
 metadata_path = f"{OUTPUT_FOLDER}/metadata.json"
