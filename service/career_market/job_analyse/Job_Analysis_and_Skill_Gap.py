@@ -62,6 +62,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import InvalidSessionIdException
 from PIL import Image
 import pytesseract
 import spacy
@@ -643,8 +644,27 @@ def scrape_topjobs(
     if write_local:
         os.makedirs(output_folder, exist_ok=True)
 
-    driver = webdriver.Chrome(options=options)
-    wait = WebDriverWait(driver, 20)
+    max_jobs_per_browser = int(os.environ.get("TOPJOBS_MAX_JOBS_PER_BROWSER", "75"))
+
+    def start_driver():
+        active_driver = webdriver.Chrome(options=options)
+        return active_driver, WebDriverWait(active_driver, 20)
+
+    def stop_driver(active_driver) -> None:
+        try:
+            if active_driver:
+                active_driver.quit()
+        except Exception:
+            pass
+
+    def is_invalid_session_error(exc: Exception) -> bool:
+        if isinstance(exc, InvalidSessionIdException):
+            return True
+        message = str(exc).lower()
+        return "invalid session id" in message or "session deleted" in message
+
+    driver, wait = start_driver()
+    jobs_since_browser_start = 0
 
     print(f" Searching for: {keyword.upper()}")
     driver.get("https://www.topjobs.lk/index.jsp")
@@ -688,6 +708,12 @@ def scrape_topjobs(
     for idx, job in enumerate(jobs, 1):
         print(f"\n {idx}/{len(jobs)}  {job['pos']} ({job['ref']})")
         safe = f"{job['ref']}_{clean_name(job['pos'])}"
+
+        if max_jobs_per_browser > 0 and jobs_since_browser_start >= max_jobs_per_browser:
+            print("    Restarting browser to keep long scrape stable")
+            stop_driver(driver)
+            driver, wait = start_driver()
+            jobs_since_browser_start = 0
 
         job_data = {
             "ref": job["ref"],
@@ -781,12 +807,19 @@ def scrape_topjobs(
                         print(f"    Screenshot failed: {e}")
 
             metadata.append(job_data)
+            jobs_since_browser_start += 1
 
         except Exception as e:
+            if is_invalid_session_error(e):
+                print("    Browser session died; restarting Chrome and continuing")
+                stop_driver(driver)
+                driver, wait = start_driver()
+                jobs_since_browser_start = 0
+                continue
             print(f"    Error: {e}")
             continue
 
-    driver.quit()
+    stop_driver(driver)
     return metadata
 
 print("Scraping functions loaded\n")
